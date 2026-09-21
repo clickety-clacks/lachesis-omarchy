@@ -12,7 +12,7 @@
   },
   "barWidget": {
     "displayName": "AI account usage",
-    "description": "Usage and qualified runway pools in the bar, with every Lachesis account in a detailed panel.",
+    "description": "Active account percentages in the bar, with usage, runway estimates, and compatible pools in the panel.",
     "category": "AI",
     "aliases": ["lachesis", "account-usage", "ai-accounts"],
     "allowMultiple": false,

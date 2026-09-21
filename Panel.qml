@@ -28,6 +28,7 @@ Panel {
   property bool refreshing: false
   property double nowMs: Date.now()
 
+  readonly property var compatiblePools: pools.filter(function(pool) { return pool.comparable === true })
   readonly property var codexAccounts: accountsFor("codex")
   readonly property var claudeAccounts: accountsFor("claude")
   readonly property var activeCodex: activeFor("codex")
@@ -133,6 +134,24 @@ Panel {
     if (hasDiagnostic(pool.diagnostics, "POOL_CAPPED_DEMAND_CENSORED")) return "100% cap hides demand"
     if (hasDiagnostic(pool.diagnostics, "POOL_MISSING_BURN")) return "Missing recent burn on one or more accounts"
     if (hasDiagnostic(pool.diagnostics, "POOL_ACCOUNT_QUALIFIED")) return "One account has another unestimated window"
+    if ((pool.diagnostics || []).length > 0) return "Estimate has limitations"
+    return ""
+  }
+
+  function accountCaveat(account) {
+    var forecast = forecastFor(account)
+    if (!forecast) return ""
+    if (forecast.qualification || forecast.status === "estimated_qualified") return "Qualified"
+    if ((forecast.diagnostics || []).length > 0) return "Limited estimate"
+    return ""
+  }
+
+  function usageNote(account) {
+    if (!account) return ""
+    var status = String(account.usage_status || "")
+    if (status === "stale") return "Stale usage"
+    if (status === "error" || status === "unavailable") return "Usage unavailable"
+    if (status === "cache") return "Cached usage"
     return ""
   }
 
@@ -351,8 +370,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(420))
-    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(680))
+    contentWidth: panel.fittedContentWidth(Style.space(400))
+    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(600))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -381,21 +400,23 @@ Panel {
         Column {
           id: contentColumn
           width: panelFlick.width
-          spacing: Style.space(14)
+          spacing: Style.space(12)
 
-          PanelHero {
+          Column {
             width: parent.width
-            title: "AI account usage"
-            meta: root.refreshing ? "Refreshing from Gibson…" : "Lachesis · " + root.accounts.length + " accounts"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            iconComponent: Component {
-              Text {
-                text: "󱚣"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.display
-              }
+            spacing: Style.space(3)
+            Text {
+              text: "AI account usage"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
+            Text {
+              text: root.refreshing ? "Refreshing…" : root.accounts.length + " accounts · Lachesis"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
             }
           }
 
@@ -422,17 +443,17 @@ Panel {
           }
 
           Column {
-            visible: root.pools.length > 0
+            visible: root.compatiblePools.length > 0
             width: parent.width
-            spacing: Style.space(10)
-            PanelSectionHeader {
-              width: parent.width
-              text: "RUNWAY POOLS"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
+            spacing: Style.space(6)
+            Text {
+              text: "Combined runway · if switching accounts"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
             }
             Repeater {
-              model: root.pools
+              model: root.compatiblePools
               PoolCard {
                 required property var modelData
                 width: panelFlick.width
@@ -441,42 +462,16 @@ Panel {
             }
           }
 
-          Column {
-            visible: root.pools.length === 0 && root.forecastStatus !== "estimated"
+          Text {
+            visible: root.compatiblePools.length === 0
             width: parent.width
-            spacing: Style.space(5)
-            Text {
-              width: parent.width
-              text: "RUNWAY"
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
-            }
-            Text {
-              width: parent.width
-              text: root.forecastStatus === "unavailable" ? "Forecast unavailable. Usage shown below." : "No compatible quota pools yet."
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
-            }
+            text: root.refreshing ? "Loading runway estimates…" :
+              root.forecastStatus === "unavailable" ? "Runway estimates unavailable" : "No compatible account pools"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
           }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(10)
-            PanelSectionHeader {
-              width: parent.width
-              text: "ACTIVE NOW"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-            }
-            ActiveCard { width: parent.width; account: root.activeCodex }
-            ActiveCard { width: parent.width; account: root.activeClaude }
-          }
-
-          PanelSeparator { width: parent.width; foreground: root.foreground }
 
           ProviderSection {
             width: parent.width
@@ -494,7 +489,7 @@ Panel {
 
           Text {
             width: parent.width
-            text: "R refreshes · runway uses observed history · pools never mix providers"
+            text: "R refreshes · select an account for details"
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -559,62 +554,6 @@ Panel {
     }
   }
 
-  component ActiveCard: BorderSurface {
-    id: card
-    property var account: null
-    readonly property int percent: root.headlinePercent(account)
-    readonly property var window: root.headlineWindow(account)
-    readonly property var runway: root.runwayFor(account)
-    implicitHeight: activeContent.implicitHeight + Style.space(24)
-    color: root.alpha(root.foreground, 0.035)
-    borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
-    radius: Style.cornerRadius
-
-    Column {
-      id: activeContent
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      anchors.margins: Style.space(12)
-      spacing: Style.space(7)
-
-      Item {
-        width: parent.width
-        implicitHeight: Math.max(activeTitle.implicitHeight, activeValue.implicitHeight)
-        Text {
-          id: activeTitle
-          text: card.account ? root.providerName(card.account.provider) + " · " + root.shortLabel(card.account) : "Not connected"
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          anchors.left: parent.left
-          anchors.right: activeValue.left
-          anchors.rightMargin: Style.space(10)
-          elide: Text.ElideRight
-        }
-        Text {
-          id: activeValue
-          text: card.runway.kind === "estimate" ? card.runway.label : (card.percent >= 0 ? card.percent + "%" : card.runway.label)
-          color: card.percent >= 90 || card.runway.kind === "exhausted" || card.runway.kind === "stale" ? root.urgent : root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          anchors.right: parent.right
-        }
-      }
-      Meter { width: parent.width; value: card.percent / 100; alarming: card.percent >= 90 }
-      Text {
-        width: parent.width
-        text: (card.window ? card.window.name + " · " : "") + card.runway.detail
-        color: root.stateColor(card.runway.kind)
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-      }
-    }
-  }
-
   component ProviderSection: Column {
     id: section
     property string provider: ""
@@ -650,112 +589,157 @@ Panel {
   component AccountCard: Column {
     id: accountCard
     property var account: null
+    property bool expanded: false
     readonly property var runway: root.runwayFor(account)
-    spacing: Style.space(7)
+    readonly property var windows: root.displayWindows(account)
+    readonly property var forecast: root.forecastFor(account)
+    readonly property string caveat: root.accountCaveat(account)
+    spacing: Style.space(6)
 
-    Item {
+    Button {
       width: parent.width
-      implicitHeight: Math.max(accountName.implicitHeight, accountState.implicitHeight)
-      Text {
-        id: accountName
-        text: (accountCard.account && accountCard.account.active ? "●  " : "") + root.shortLabel(accountCard.account)
-        color: root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        font.bold: accountCard.account && accountCard.account.active
-        anchors.left: parent.left
-        anchors.right: accountState.left
-        anchors.rightMargin: Style.space(10)
-        elide: Text.ElideRight
+      padding: 0
+      hoverEnabled: true
+      background: Rectangle {
+        color: parent.hovered || parent.activeFocus ? root.alpha(root.foreground, 0.05) : "transparent"
+        radius: Style.cornerRadius
       }
-      Text {
-        id: accountState
-        text: accountCard.account && accountCard.account.active ? "ACTIVE" : root.ageText(accountCard.account)
-        color: accountCard.account && accountCard.account.active ? root.foreground : root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        anchors.right: parent.right
-      }
-    }
+      onClicked: accountCard.expanded = !accountCard.expanded
+      Accessible.name: root.shortLabel(accountCard.account) + ", " +
+        (root.headlinePercent(accountCard.account) >= 0 ? root.headlinePercent(accountCard.account) + " percent used, " : "") +
+        accountCard.runway.label + (accountCard.caveat ? ", " + accountCard.caveat : "") +
+        (accountCard.expanded ? ", collapse details" : ", expand details")
 
-    Repeater {
-      model: root.displayWindows(accountCard.account)
-      Column {
-        id: windowRow
-        required property var modelData
-        readonly property var forecastWindow: root.forecastWindow(accountCard.account, modelData.id)
-        readonly property var runway: Forecast.windowRunway(forecastWindow, root.nowMs)
-        width: accountCard.width
+      contentItem: Column {
         spacing: Style.space(4)
         Item {
           width: parent.width
-          implicitHeight: Math.max(windowName.implicitHeight, windowValue.implicitHeight)
+          implicitHeight: Math.max(accountName.implicitHeight, accountValue.implicitHeight)
           Text {
-            id: windowName
-            text: modelData.name
-            color: root.dim
+            id: accountName
+            text: (accountCard.account && accountCard.account.active ? "● " : "") + root.shortLabel(accountCard.account)
+            color: root.foreground
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Style.font.body
+            font.bold: accountCard.account && accountCard.account.active
             anchors.left: parent.left
-            anchors.right: windowValue.left
-            anchors.rightMargin: Style.space(8)
+            anchors.right: accountValue.left
+            anchors.rightMargin: Style.space(10)
             elide: Text.ElideRight
           }
           Text {
-            id: windowValue
-            text: Math.round(Number(windowRow.modelData.used_percent)) + "% · " + (windowRow.forecastWindow ? windowRow.runway.label : root.resetText(windowRow.modelData))
-            color: Number(windowRow.modelData.used_percent) >= 90 || windowRow.runway.kind === "exhausted" ? root.urgent : root.stateColor(windowRow.runway.kind)
+            id: accountValue
+            text: (root.headlinePercent(accountCard.account) >= 0 ? root.headlinePercent(accountCard.account) + "% used" : "Unavailable") +
+              (accountCard.expanded ? "  ▴" : "  ▾")
+            color: root.headlinePercent(accountCard.account) >= 90 ? root.urgent : root.foreground
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Style.font.body
+            font.bold: true
             anchors.right: parent.right
           }
         }
+
         Text {
           width: parent.width
-          text: {
-            var reset = root.resetText(windowRow.modelData)
-            var coverage = windowRow.forecastWindow ? Forecast.coverageText(windowRow.forecastWindow.coverage_48h_hours) : ""
-            var capped = windowRow.forecastWindow && root.hasDiagnostic(windowRow.forecastWindow.diagnostics, "USAGE_CAPPED_DEMAND_CENSORED")
-              ? "capped demand" : ""
-            var parts = []
-            if (reset) parts.push(reset)
-            if (coverage && coverage !== "No sample coverage") parts.push(coverage)
-            if (capped) parts.push(capped)
-            return parts.join(" · ")
+          text: accountCard.runway.label + (accountCard.caveat ? " · " + accountCard.caveat : "")
+          color: accountCard.caveat ? root.urgent : root.stateColor(accountCard.runway.kind)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+        }
+
+        Repeater {
+          model: accountCard.windows
+          Column {
+            id: usageRow
+            required property var modelData
+            required property int index
+            width: parent.width
+            spacing: Style.space(3)
+            Text {
+              visible: accountCard.windows.length > 1
+              width: parent.width
+              text: modelData.name + " · " + Math.round(Number(modelData.used_percent)) + "% used"
+              color: Number(modelData.used_percent) >= 90 ? root.urgent : root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+            Meter {
+              width: parent.width
+              value: Number(usageRow.modelData.used_percent) / 100
+              alarming: Number(usageRow.modelData.used_percent) >= 90
+            }
+            Text {
+              width: parent.width
+              text: (accountCard.windows.length === 1 ? usageRow.modelData.name + " · " : "") +
+                root.resetText(usageRow.modelData) +
+                (usageRow.index === 0 && root.usageNote(accountCard.account) ? " · " + root.usageNote(accountCard.account) : "")
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
           }
-          visible: text !== ""
+        }
+      }
+    }
+
+    Column {
+      visible: accountCard.expanded
+      width: parent.width
+      spacing: Style.space(5)
+      Text {
+        width: parent.width
+        text: root.shortLabel(accountCard.account) +
+          (accountCard.account && accountCard.account.active ? " · Active account" : "") +
+          (accountCard.account && accountCard.account.plan ? " · " + accountCard.account.plan : "")
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+      }
+      Text {
+        width: parent.width
+        text: accountCard.runway.detail
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+      }
+      Text {
+        width: parent.width
+        text: root.ageText(accountCard.account) +
+          (accountCard.forecast ? " · " + Forecast.coverageText(accountCard.forecast.coverage_hours) : "")
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+      }
+      Repeater {
+        model: accountCard.windows
+        Text {
+          required property var modelData
+          readonly property var windowForecast: root.forecastWindow(accountCard.account, modelData.id)
+          width: parent.width
+          visible: windowForecast !== null
+          text: modelData.name + ": " + Forecast.windowRunway(windowForecast, root.nowMs).label +
+            (windowForecast ? " · " + Forecast.coverageText(windowForecast.coverage_48h_hours) : "") +
+            (windowForecast && root.hasDiagnostic(windowForecast.diagnostics, "USAGE_CAPPED_DEMAND_CENSORED") ? " · 100% cap hides demand" : "")
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
         }
-        Meter {
-          width: parent.width
-          value: Number(modelData.used_percent) / 100
-          alarming: Number(modelData.used_percent) >= 90
-        }
       }
-    }
-
-    Text {
-      visible: root.displayWindows(accountCard.account).length === 0
-      width: parent.width
-      text: accountCard.runway.label + " · " + accountCard.runway.detail
-      color: root.stateColor(accountCard.runway.kind)
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      wrapMode: Text.WordWrap
     }
   }
 
   component PoolCard: BorderSurface {
     id: poolCard
     property var pool: null
+    property bool expanded: false
     readonly property var runway: root.poolRunway(pool)
-    readonly property real remainingRatio: pool && Number(pool.capacity_member_count) > 0
-      ? Number(pool.remaining_percent_points) / (Number(pool.capacity_member_count) * 100)
-      : 0
-    implicitHeight: poolContent.implicitHeight + Style.space(24)
+    implicitHeight: poolContent.implicitHeight + Style.space(16)
     color: root.alpha(root.foreground, 0.035)
     borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
     radius: Style.cornerRadius
@@ -765,76 +749,104 @@ Panel {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      anchors.margins: Style.space(12)
-      spacing: Style.space(7)
+      anchors.margins: Style.space(8)
+      spacing: Style.space(6)
 
-      Item {
+      Button {
         width: parent.width
-        implicitHeight: Math.max(poolTitle.implicitHeight, poolValue.implicitHeight)
+        padding: 0
+        hoverEnabled: true
+        background: Rectangle {
+          color: parent.hovered || parent.activeFocus ? root.alpha(root.foreground, 0.05) : "transparent"
+          radius: Style.cornerRadius
+        }
+        onClicked: poolCard.expanded = !poolCard.expanded
+        Accessible.name: root.poolTitle(poolCard.pool) + ", " + poolCard.runway.label +
+          (root.poolCaveat(poolCard.pool) ? ", qualified" : "") +
+          (poolCard.expanded ? ", collapse details" : ", expand details")
+        contentItem: Column {
+          spacing: Style.space(3)
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(poolTitle.implicitHeight, poolValue.implicitHeight)
+            Text {
+              id: poolTitle
+              text: root.poolTitle(poolCard.pool)
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              anchors.left: parent.left
+              anchors.right: poolValue.left
+              anchors.rightMargin: Style.space(8)
+              elide: Text.ElideRight
+            }
+            Text {
+              id: poolValue
+              text: poolCard.runway.label
+              color: root.stateColor(poolCard.runway.kind)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              anchors.right: parent.right
+            }
+          }
+          Text {
+            width: parent.width
+            text: {
+              if (!poolCard.pool) return ""
+              var plan = poolCard.pool.plan_known && poolCard.pool.plan ? String(poolCard.pool.plan) : "Plan unknown"
+              return plan + " · " + Number(poolCard.pool.capacity_member_count || 0) + " accounts" +
+                (root.poolCaveat(poolCard.pool) ? " · Qualified" : "") +
+                (poolCard.expanded ? "  ▴" : "  ▾")
+            }
+            color: root.poolCaveat(poolCard.pool) ? root.urgent : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+        }
+      }
+
+      Column {
+        visible: poolCard.expanded
+        width: parent.width
+        spacing: Style.space(5)
         Text {
-          id: poolTitle
-          text: root.poolTitle(poolCard.pool)
+          width: parent.width
+          text: poolCard.pool ? (poolCard.pool.members || []).map(function(member) { return member.label }).join(" · ") : ""
           color: root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          anchors.left: parent.left
-          anchors.right: poolValue.left
-          anchors.rightMargin: Style.space(10)
-          elide: Text.ElideRight
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
         Text {
-          id: poolValue
-          text: poolCard.runway.label
-          color: root.stateColor(poolCard.runway.kind)
+          width: parent.width
+          text: "Assumes work can switch between accounts with matching provider, plan and quota window."
+          color: root.dim
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          anchors.right: parent.right
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
-      }
-
-      Meter { width: parent.width; value: poolCard.remainingRatio; alarming: poolCard.runway.kind === "exhausted" }
-
-      Text {
-        width: parent.width
-        text: {
-          if (!poolCard.pool) return ""
-          var plan = poolCard.pool.plan_known && poolCard.pool.plan ? String(poolCard.pool.plan) : "plan unknown"
-          var compatibility = poolCard.pool.compatibility === "same_capacity" ? "matching capacity" : "account-specific quota"
-          var remaining = Number(poolCard.pool.remaining_percent_points || 0) / 100
-          var remainingText = remaining.toFixed(remaining < 10 ? 1 : 0)
-          return remainingText + " account allowances remaining · " + plan + " · " + compatibility
+        Text {
+          width: parent.width
+          text: poolCard.runway.detail +
+            (poolCard.pool ? " · " + Forecast.coverageText(poolCard.pool.coverage_hours) : "") +
+            (root.poolCaveat(poolCard.pool) ? " · " + root.poolCaveat(poolCard.pool) : "")
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-      }
-
-      Text {
-        width: parent.width
-        text: {
-          if (!poolCard.pool) return ""
-          var members = Number(poolCard.pool.capacity_member_count || 0)
-          return members + (members === 1 ? " account" : " accounts")
+        Text {
+          width: parent.width
+          text: poolCard.pool ? (Number(poolCard.pool.remaining_percent_points || 0) / 100).toFixed(1) +
+            " account allowances remaining" : ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-      }
-
-      Text {
-        width: parent.width
-        text: poolCard.runway.detail + (poolCard.pool && Number(poolCard.pool.coverage_hours) > 0
-          ? " · " + Forecast.coverageText(poolCard.pool.coverage_hours) : "") +
-          (root.poolCaveat(poolCard.pool) ? " · " + root.poolCaveat(poolCard.pool) : "") +
-          (poolCard.pool && poolCard.pool.comparable ? " · Assumes switching accounts" : "")
-        color: root.stateColor(poolCard.runway.kind)
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
       }
     }
   }
