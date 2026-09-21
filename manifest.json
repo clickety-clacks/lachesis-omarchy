@@ -4,7 +4,7 @@
   "name": "Lachesis Usage",
   "version": "1.0.0",
   "author": "Mike",
-  "description": "Active and registered Codex and Claude account limits from Lachesis.",
+  "description": "Active Codex and Claude usage with reset-aware runway estimates from Lachesis.",
   "kinds": ["bar-widget"],
   "activation": "on-demand",
   "entryPoints": {
@@ -12,7 +12,7 @@
   },
   "barWidget": {
     "displayName": "AI account usage",
-    "description": "Active-account usage in the bar and every Lachesis account in a detailed panel.",
+    "description": "Usage and qualified runway pools in the bar, with every Lachesis account in a detailed panel.",
     "category": "AI",
     "aliases": ["lachesis", "account-usage", "ai-accounts"],
     "allowMultiple": false,

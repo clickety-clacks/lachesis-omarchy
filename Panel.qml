@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "forecast.js" as Forecast
 
 Panel {
   id: root
@@ -18,7 +19,11 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   property var accounts: []
+  property var pools: []
+  property var aggregateForecast: null
   property string generatedAt: ""
+  property string forecastGeneratedAt: ""
+  property string forecastStatus: "unavailable"
   property string errorText: ""
   property bool refreshing: false
   property double nowMs: Date.now()
@@ -74,6 +79,66 @@ Panel {
     return window ? Math.round(Number(window.used_percent)) : -1
   }
 
+  function forecastFor(account) {
+    if (!account || !account.forecast) return null
+    var forecast = account.forecast
+    var generated = Forecast.timestampMs(forecast.generated_at || forecastGeneratedAt)
+    var ttl = Math.max(60000, Number(setting("refreshIntervalSec", 300)) * 2000)
+    if (!isFinite(generated) || nowMs - generated > ttl) return null
+    return forecast
+  }
+
+  function runwayFor(account) {
+    return Forecast.runway(forecastFor(account), nowMs,
+                           account ? String(account.usage_status || "") : "unavailable")
+  }
+
+  function poolRunway(pool) {
+    if (!pool) return Forecast.runway(null, nowMs, "unavailable")
+    var generated = Forecast.timestampMs(aggregateForecast && aggregateForecast.generated_at
+      ? aggregateForecast.generated_at : forecastGeneratedAt)
+    var ttl = Math.max(60000, Number(setting("refreshIntervalSec", 300)) * 2000)
+    if (!isFinite(generated) || nowMs - generated > ttl)
+      return Forecast.runway(null, nowMs, "unavailable")
+    return Forecast.poolRunway(pool, nowMs)
+  }
+
+  function compactStat(account) {
+    var runway = runwayFor(account)
+    if (runway.kind === "estimate") return runway.label.replace(" left", "")
+    if (runway.kind === "exhausted") return "spent"
+    var percent = headlinePercent(account)
+    return percent >= 0 ? percent + "%" : "—"
+  }
+
+  function stateColor(kind) {
+    if (kind === "exhausted" || kind === "stale" || kind === "unavailable" || kind === "elapsed") return root.urgent
+    if (kind === "estimate") return root.foreground
+    return root.dim
+  }
+
+  function hasDiagnostic(list, code) {
+    list = list || []
+    for (var i = 0; i < list.length; i++) if (String(list[i].code || "") === code) return true
+    return false
+  }
+
+  function poolTitle(pool) {
+    if (!pool) return "Quota pool"
+    var title = root.providerName(pool.provider) + " · " + String(pool.window_name || pool.window_id || "quota")
+    if (!pool.comparable && pool.members && pool.members.length === 1)
+      title += " · " + String(pool.members[0].label || "account")
+    return title
+  }
+
+  function poolCaveat(pool) {
+    if (!pool) return ""
+    if (hasDiagnostic(pool.diagnostics, "POOL_CAPPED_DEMAND_CENSORED")) return "100% cap hides demand"
+    if (hasDiagnostic(pool.diagnostics, "POOL_MISSING_BURN")) return "Missing recent burn on one or more accounts"
+    if (hasDiagnostic(pool.diagnostics, "POOL_ACCOUNT_QUALIFIED")) return "One account has another unestimated window"
+    return ""
+  }
+
   function displayWindows(account) {
     if (!account) return []
     var windows = account.windows || []
@@ -82,6 +147,18 @@ Panel {
     for (var i = 0; i < windows.length; i++)
       if (windows[i].id === "primary") primary.push(windows[i])
     return primary
+  }
+
+  function forecastWindow(account, id) {
+    var forecast = forecastFor(account)
+    if (!forecast || forecast.history_error || String(forecast.status || "") === "stale" ||
+        String(forecast.status || "") === "reauth_required" ||
+        String(forecast.account_status || "") !== "ready" ||
+        String(account.usage_status || "") === "error" ||
+        String(account.usage_status || "") === "unavailable") return null
+    var windows = forecast ? (forecast.windows || []) : []
+    for (var i = 0; i < windows.length; i++) if (windows[i].id === id) return windows[i]
+    return null
   }
 
   function providerName(provider) { return provider === "codex" ? "Codex" : "Claude" }
@@ -112,13 +189,31 @@ Panel {
 
   function ageText(account) {
     if (!account) return ""
-    var age = Math.max(0, Number(account.age_seconds || 0) * 1000 + (nowMs - new Date(account.observed_at).getTime()))
-    if (!isFinite(age)) return ""
-    return "Updated " + formatDuration(age) + " ago"
+    var observed = Forecast.timestampMs(account.observed_at)
+    if (isFinite(observed)) return "Updated " + formatDuration(nowMs - observed) + " ago"
+    var reportedAge = Number(account.age_seconds)
+    if (reportedAge > 0 && isFinite(reportedAge)) return "Observed " + formatDuration(reportedAge * 1000) + " ago"
+    return "No usage sample"
+  }
+
+  function clearForecasts() {
+    var current = []
+    for (var i = 0; i < accounts.length; i++) {
+      var copy = {}
+      for (var key in accounts[i]) copy[key] = accounts[i][key]
+      copy.forecast = null
+      current.push(copy)
+    }
+    accounts = current
+    pools = []
+    aggregateForecast = null
+    forecastGeneratedAt = ""
+    forecastStatus = "unavailable"
   }
 
   function refreshNow() {
     if (fetchProcess.running) return
+    clearForecasts()
     refreshing = true
     errorText = ""
     fetchProcess.command = [Qt.resolvedUrl("fetch.sh").toString().replace("file://", ""),
@@ -130,10 +225,16 @@ Panel {
     try {
       var payload = JSON.parse(String(text || ""))
       accounts = payload.accounts || []
+      pools = payload.pools || []
+      aggregateForecast = payload.forecast || null
+      nowMs = Date.now()
       generatedAt = String(payload.generated_at || "")
+      forecastGeneratedAt = String(payload.forecast_generated_at || "")
+      forecastStatus = String(payload.forecast_status || "unavailable")
       errorText = ""
     } catch (error) {
       errorText = "Lachesis returned unreadable data"
+      clearForecasts()
     }
   }
 
@@ -158,7 +259,7 @@ Panel {
 
   Timer {
     interval: 30000
-    running: root.opened
+    running: true
     repeat: true
     onTriggered: root.nowMs = Date.now()
   }
@@ -199,7 +300,7 @@ Panel {
     fixedWidth: usageRow.implicitWidth + Style.space(24)
     horizontalMargin: 0
     verticalPadding: 8.75
-    tooltipText: "Active Codex and Claude allowance used"
+    tooltipText: "Active account usage and runway"
     active: root.alarming
     useActiveColor: false
     foreground: root.alarming
@@ -222,7 +323,8 @@ Panel {
       ProviderStat {
         iconSource: "file:///usr/share/omarchy/shell/plugins/agents/assets/codex.svg"
         iconName: "Codex"
-        percent: root.codexPercent
+        account: root.activeCodex
+        valueText: root.compactStat(root.activeCodex)
       }
 
       Rectangle {
@@ -235,7 +337,8 @@ Panel {
       ProviderStat {
         iconSource: "file:///usr/share/omarchy/shell/plugins/agents/assets/claude.svg"
         iconName: "Claude"
-        percent: root.claudePercent
+        account: root.activeClaude
+        valueText: root.compactStat(root.activeClaude)
       }
     }
     onPressed: function(buttonCode) {
@@ -322,6 +425,48 @@ Panel {
           }
 
           Column {
+            visible: root.pools.length > 0
+            width: parent.width
+            spacing: Style.space(10)
+            PanelSectionHeader {
+              width: parent.width
+              text: "RUNWAY POOLS"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+            Repeater {
+              model: root.pools
+              PoolCard {
+                required property var modelData
+                width: panelFlick.width
+                pool: modelData
+              }
+            }
+          }
+
+          Column {
+            visible: root.pools.length === 0 && root.forecastStatus !== "estimated"
+            width: parent.width
+            spacing: Style.space(5)
+            Text {
+              width: parent.width
+              text: "RUNWAY"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+            Text {
+              width: parent.width
+              text: root.forecastStatus === "unavailable" ? "Forecast unavailable. Usage shown below." : "No compatible quota pools yet."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+          }
+
+          Column {
             width: parent.width
             spacing: Style.space(10)
             PanelSectionHeader {
@@ -352,7 +497,7 @@ Panel {
 
           Text {
             width: parent.width
-            text: "R refreshes · percentages are allowance used"
+            text: "R refreshes · runway uses observed history · pools never mix providers"
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -384,7 +529,8 @@ Panel {
     id: providerStat
     property url iconSource: ""
     property string iconName: ""
-    property int percent: -1
+    property var account: null
+    property string valueText: "—"
     spacing: Style.space(5)
 
     Rectangle {
@@ -406,7 +552,7 @@ Panel {
     }
 
     Text {
-      text: providerStat.percent >= 0 ? providerStat.percent + "%" : "—"
+      text: providerStat.valueText
       color: button.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
@@ -421,6 +567,7 @@ Panel {
     property var account: null
     readonly property int percent: root.headlinePercent(account)
     readonly property var window: root.headlineWindow(account)
+    readonly property var runway: root.runwayFor(account)
     implicitHeight: activeContent.implicitHeight + Style.space(24)
     color: root.alpha(root.foreground, 0.035)
     borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
@@ -451,8 +598,8 @@ Panel {
         }
         Text {
           id: activeValue
-          text: card.percent >= 0 ? card.percent + "%" : "—"
-          color: card.percent >= 90 ? root.urgent : root.foreground
+          text: card.runway.kind === "estimate" ? card.runway.label : (card.percent >= 0 ? card.percent + "%" : card.runway.label)
+          color: card.percent >= 90 || card.runway.kind === "exhausted" || card.runway.kind === "stale" ? root.urgent : root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           font.bold: true
@@ -462,11 +609,11 @@ Panel {
       Meter { width: parent.width; value: card.percent / 100; alarming: card.percent >= 90 }
       Text {
         width: parent.width
-        text: card.window ? card.window.name + " · " + root.resetText(card.window) : "No usage window"
-        color: root.dim
+        text: (card.window ? card.window.name + " · " : "") + card.runway.detail
+        color: root.stateColor(card.runway.kind)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
-        elide: Text.ElideRight
+        wrapMode: Text.WordWrap
       }
     }
   }
@@ -506,6 +653,7 @@ Panel {
   component AccountCard: Column {
     id: accountCard
     property var account: null
+    readonly property var runway: root.runwayFor(account)
     spacing: Style.space(7)
 
     Item {
@@ -536,7 +684,10 @@ Panel {
     Repeater {
       model: root.displayWindows(accountCard.account)
       Column {
+        id: windowRow
         required property var modelData
+        readonly property var forecastWindow: root.forecastWindow(accountCard.account, modelData.id)
+        readonly property var runway: Forecast.windowRunway(forecastWindow, root.nowMs)
         width: accountCard.width
         spacing: Style.space(4)
         Item {
@@ -555,18 +706,138 @@ Panel {
           }
           Text {
             id: windowValue
-            text: Math.round(Number(modelData.used_percent)) + "% · " + root.resetText(modelData)
-            color: Number(modelData.used_percent) >= 90 ? root.urgent : root.foreground
+            text: Math.round(Number(windowRow.modelData.used_percent)) + "% · " + (windowRow.forecastWindow ? windowRow.runway.label : root.resetText(windowRow.modelData))
+            color: Number(windowRow.modelData.used_percent) >= 90 || windowRow.runway.kind === "exhausted" ? root.urgent : root.stateColor(windowRow.runway.kind)
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             anchors.right: parent.right
           }
+        }
+        Text {
+          width: parent.width
+          text: {
+            var reset = root.resetText(windowRow.modelData)
+            var coverage = windowRow.forecastWindow ? Forecast.coverageText(windowRow.forecastWindow.coverage_48h_hours) : ""
+            var capped = windowRow.forecastWindow && root.hasDiagnostic(windowRow.forecastWindow.diagnostics, "USAGE_CAPPED_DEMAND_CENSORED")
+              ? "capped demand" : ""
+            var parts = []
+            if (reset) parts.push(reset)
+            if (coverage && coverage !== "No sample coverage") parts.push(coverage)
+            if (capped) parts.push(capped)
+            return parts.join(" · ")
+          }
+          visible: text !== ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
         Meter {
           width: parent.width
           value: Number(modelData.used_percent) / 100
           alarming: Number(modelData.used_percent) >= 90
         }
+      }
+    }
+
+    Text {
+      visible: root.displayWindows(accountCard.account).length === 0
+      width: parent.width
+      text: accountCard.runway.label + " · " + accountCard.runway.detail
+      color: root.stateColor(accountCard.runway.kind)
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      wrapMode: Text.WordWrap
+    }
+  }
+
+  component PoolCard: BorderSurface {
+    id: poolCard
+    property var pool: null
+    readonly property var runway: root.poolRunway(pool)
+    readonly property real remainingRatio: pool && Number(pool.capacity_member_count) > 0
+      ? Number(pool.remaining_percent_points) / (Number(pool.capacity_member_count) * 100)
+      : 0
+    implicitHeight: poolContent.implicitHeight + Style.space(24)
+    color: root.alpha(root.foreground, 0.035)
+    borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
+    radius: Style.cornerRadius
+
+    Column {
+      id: poolContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.margins: Style.space(12)
+      spacing: Style.space(7)
+
+      Item {
+        width: parent.width
+        implicitHeight: Math.max(poolTitle.implicitHeight, poolValue.implicitHeight)
+        Text {
+          id: poolTitle
+          text: root.poolTitle(poolCard.pool)
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          anchors.left: parent.left
+          anchors.right: poolValue.left
+          anchors.rightMargin: Style.space(10)
+          elide: Text.ElideRight
+        }
+        Text {
+          id: poolValue
+          text: poolCard.runway.label
+          color: root.stateColor(poolCard.runway.kind)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          anchors.right: parent.right
+        }
+      }
+
+      Meter { width: parent.width; value: poolCard.remainingRatio; alarming: poolCard.runway.kind === "exhausted" }
+
+      Text {
+        width: parent.width
+        text: {
+          if (!poolCard.pool) return ""
+          var plan = poolCard.pool.plan_known && poolCard.pool.plan ? String(poolCard.pool.plan) : "plan unknown"
+          var compatibility = poolCard.pool.compatibility === "same_capacity" ? "matching capacity" : "account-specific quota"
+          var remaining = Number(poolCard.pool.remaining_percent_points || 0) / 100
+          var remainingText = remaining.toFixed(remaining < 10 ? 1 : 0)
+          return remainingText + " account allowances remaining · " + plan + " · " + compatibility
+        }
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+      }
+
+      Text {
+        width: parent.width
+        text: {
+          if (!poolCard.pool) return ""
+          var members = Number(poolCard.pool.capacity_member_count || 0)
+          return members + (members === 1 ? " account" : " accounts")
+        }
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+      }
+
+      Text {
+        width: parent.width
+        text: poolCard.runway.detail + (poolCard.pool && Number(poolCard.pool.coverage_hours) > 0
+          ? " · " + Forecast.coverageText(poolCard.pool.coverage_hours) : "") +
+          (root.poolCaveat(poolCard.pool) ? " · " + root.poolCaveat(poolCard.pool) : "") +
+          (poolCard.pool && poolCard.pool.comparable ? " · Assumes switching accounts" : "")
+        color: root.stateColor(poolCard.runway.kind)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
       }
     }
   }
