@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "mike.lachesis-usage",
+  "name": "Lachesis Usage",
+  "version": "1.0.0",
+  "author": "Mike",
+  "description": "Active and registered Codex and Claude account limits from Lachesis.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "AI account usage",
+    "description": "Active-account usage in the bar and every Lachesis account in a detailed panel.",
+    "category": "AI",
+    "aliases": ["lachesis", "account-usage", "ai-accounts"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "host": "gibson",
+      "user": "mike",
+      "refreshIntervalSec": 300
+    },
+    "schema": [
+      { "key": "host", "type": "string", "label": "Lachesis host", "defaultValue": "gibson" },
+      { "key": "user", "type": "string", "label": "SSH user", "defaultValue": "mike" },
+      { "key": "refreshIntervalSec", "type": "integer", "label": "Refresh interval (seconds)", "min": 30, "max": 3600, "step": 30, "defaultValue": 300 }
+    ]
+  }
+}
