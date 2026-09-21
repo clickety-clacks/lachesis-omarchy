@@ -104,9 +104,6 @@ Panel {
   }
 
   function compactStat(account) {
-    var runway = runwayFor(account)
-    if (runway.kind === "estimate") return runway.label.replace(" left", "")
-    if (runway.kind === "exhausted") return "spent"
     var percent = headlinePercent(account)
     return percent >= 0 ? percent + "%" : "—"
   }
