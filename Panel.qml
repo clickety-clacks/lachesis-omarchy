@@ -1,5 +1,5 @@
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls as Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -395,7 +395,7 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        Controls.ScrollBar.vertical: Controls.ScrollBar { policy: Controls.ScrollBar.AsNeeded }
 
         Column {
           id: contentColumn
@@ -596,7 +596,7 @@ Panel {
     readonly property string caveat: root.accountCaveat(account)
     spacing: Style.space(6)
 
-    Button {
+    Controls.Button {
       width: parent.width
       padding: 0
       hoverEnabled: true
@@ -752,7 +752,7 @@ Panel {
       anchors.margins: Style.space(8)
       spacing: Style.space(6)
 
-      Button {
+      Controls.Button {
         width: parent.width
         padding: 0
         hoverEnabled: true
