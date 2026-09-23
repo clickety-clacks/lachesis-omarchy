@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls as Controls
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -343,13 +344,6 @@ Panel {
         valueText: root.compactStat(root.activeCodex)
       }
 
-      Rectangle {
-        width: Math.max(1, Style.space(1))
-        height: Style.space(12)
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.alpha(button.foreground, 0.35)
-      }
-
       ProviderStat {
         iconSource: "file:///usr/share/omarchy/shell/plugins/agents/assets/claude.svg"
         iconName: "Claude"
@@ -525,21 +519,28 @@ Panel {
     property string valueText: "—"
     spacing: Style.space(5)
 
-    Rectangle {
+    Item {
       width: Style.space(17)
       height: Style.space(17)
-      radius: Style.space(4)
-      color: root.bar ? root.bar.background : Color.background
       anchors.verticalCenter: parent.verticalCenter
 
       Image {
+        id: providerIcon
         anchors.fill: parent
-        anchors.margins: Style.space(3)
         source: providerStat.iconSource
         sourceSize.width: Style.space(22)
         sourceSize.height: Style.space(22)
         fillMode: Image.PreserveAspectFit
         smooth: true
+        visible: false
+        layer.enabled: true
+      }
+
+      MultiEffect {
+        anchors.fill: providerIcon
+        source: providerIcon
+        colorization: 1.0
+        colorizationColor: root.foreground
       }
     }
 
