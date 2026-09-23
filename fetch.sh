@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-host="${1:-gibson}"
-user="${2:-mike}"
+host="${1:-localhost}"
+user="${2:-$(id -un)}"
 active_codex=""
 
 if [[ -r "${HOME}/.codex/auth.json" ]]; then
@@ -11,6 +11,10 @@ fi
 
 fetch_remote() {
   local path="$1"
+  if [[ "$host" == "localhost" || "$host" == "127.0.0.1" ]]; then
+    curl -fsS --max-time 15 "http://127.0.0.1:7843${path}"
+    return
+  fi
   ssh -o BatchMode=yes -o ConnectTimeout=5 "${user}@${host}" \
     "curl -fsS --max-time 15 'http://127.0.0.1:7843${path}'"
 }

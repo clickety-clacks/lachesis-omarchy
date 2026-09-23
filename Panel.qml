@@ -234,7 +234,7 @@ Panel {
     refreshing = true
     errorText = ""
     fetchProcess.command = [Qt.resolvedUrl("fetch.sh").toString().replace("file://", ""),
-                            String(setting("host", "gibson")), String(setting("user", "mike"))]
+                            String(setting("host", "localhost")), String(setting("user", ""))]
     fetchProcess.running = true
   }
 
@@ -291,7 +291,7 @@ Panel {
     stderr: StdioCollector {
       waitForEnd: true
       onStreamFinished: if (String(text || "").trim() !== "")
-        root.errorText = "Cannot reach Lachesis on " + root.setting("host", "gibson")
+        root.errorText = "Cannot reach Lachesis on " + root.setting("host", "localhost")
     }
     onExited: function(exitCode) {
       root.refreshing = false

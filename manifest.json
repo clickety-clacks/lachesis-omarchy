@@ -18,13 +18,13 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "host": "gibson",
-      "user": "mike",
+      "host": "localhost",
+      "user": "",
       "refreshIntervalSec": 300
     },
     "schema": [
-      { "key": "host", "type": "string", "label": "Lachesis host", "defaultValue": "gibson" },
-      { "key": "user", "type": "string", "label": "SSH user", "defaultValue": "mike" },
+      { "key": "host", "type": "string", "label": "Lachesis host", "defaultValue": "localhost" },
+      { "key": "user", "type": "string", "label": "SSH user", "defaultValue": "" },
       { "key": "refreshIntervalSec", "type": "integer", "label": "Refresh interval (seconds)", "min": 30, "max": 3600, "step": 30, "defaultValue": 300 }
     ]
   }
