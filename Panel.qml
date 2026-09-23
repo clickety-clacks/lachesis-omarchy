@@ -520,8 +520,8 @@ Panel {
     spacing: Style.space(5)
 
     Item {
-      width: Style.space(17)
-      height: Style.space(17)
+      width: Style.space(17) * 0.8
+      height: Style.space(17) * 0.8
       anchors.verticalCenter: parent.verticalCenter
 
       Image {
