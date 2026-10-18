@@ -31,6 +31,17 @@ check("qualified finite runway keeps its qualification", forecast.runway({
   detail: "Runs out in 3h 30m · Plan unknown"
 })
 
+check("unknown-plan qualification is context, not runway urgency", [
+  forecast.runwayIsUrgent(forecast.runway({
+    status: "estimated_qualified",
+    exhaustion_at: "2026-09-21T15:30:00Z",
+    account_status: "ready",
+    qualification: "Plan unknown"
+  }, now).kind),
+  forecast.runwayIsUrgent("reset"),
+  forecast.runwayIsUrgent("exhausted")
+], [false, false, true])
+
 check("Claude active account matches the provider UUID, independent of usage", forecast.activeAccount([
   {provider: "claude", id: "higher-usage", provider_account_uuid: "uuid-other", used_percent: 95},
   {provider: "claude", id: "active", provider_account_uuid: "uuid-current", used_percent: 5}

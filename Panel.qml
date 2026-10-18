@@ -128,7 +128,7 @@ Panel {
   }
 
   function stateColor(kind) {
-    if (kind === "exhausted" || kind === "stale" || kind === "unavailable" || kind === "elapsed") return root.urgent
+    if (Forecast.runwayIsUrgent(kind)) return root.urgent
     if (kind === "estimate" || kind === "reset") return root.foreground
     return root.dim
   }
@@ -875,7 +875,7 @@ Panel {
                 (root.poolCaveat(poolCard.pool) ? " · Qualified" : "") +
                 (poolCard.expanded ? "  ▴" : "  ▾")
             }
-            color: root.poolCaveat(poolCard.pool) ? root.urgent : root.dim
+            color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap

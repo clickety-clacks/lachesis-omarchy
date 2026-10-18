@@ -40,6 +40,10 @@ function compatiblePools(pools) {
   return pools.filter(function(pool) { return pool.comparable === true })
 }
 
+function runwayIsUrgent(kind) {
+  return kind === "exhausted" || kind === "stale" || kind === "unavailable" || kind === "elapsed"
+}
+
 function estimateDate(forecast) {
   return forecast ? timestampMs(forecast.exhaustion_at) : NaN
 }
@@ -186,6 +190,7 @@ if (typeof module !== "undefined") {
     formatDuration: formatDuration,
     activeAccount: activeAccount,
     compatiblePools: compatiblePools,
+    runwayIsUrgent: runwayIsUrgent,
     statusLabel: statusLabel,
     runway: runway,
     windowRunway: windowRunway,
