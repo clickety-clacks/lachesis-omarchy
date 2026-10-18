@@ -861,7 +861,7 @@ Panel {
               text: poolCard.runway.label
               color: root.stateColor(poolCard.runway.kind)
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: Style.font.body
               font.bold: true
               anchors.right: parent.right
             }
