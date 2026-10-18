@@ -32,29 +32,29 @@ check("qualified finite runway keeps its qualification", forecast.runway({
 })
 
 check("Claude active account matches the provider UUID, independent of usage", forecast.activeAccount([
-  {provider: "claude", id: "higher-usage", accountUuid: "uuid-other", used_percent: 95},
-  {provider: "claude", id: "active", accountUuid: "uuid-current", used_percent: 5}
+  {provider: "claude", id: "higher-usage", provider_account_uuid: "uuid-other", used_percent: 95},
+  {provider: "claude", id: "active", provider_account_uuid: "uuid-current", used_percent: 5}
 ], "claude", "uuid-current"), {
-  provider: "claude", id: "active", accountUuid: "uuid-current", used_percent: 5
+  provider: "claude", id: "active", provider_account_uuid: "uuid-current", used_percent: 5
 })
 
 check("Claude active account stays unknown without a local UUID", forecast.activeAccount([
-  {provider: "claude", id: "first", accountUuid: "uuid-first", active: true},
-  {provider: "claude", id: "second", accountUuid: "uuid-second"}
+  {provider: "claude", id: "first", provider_account_uuid: "uuid-first", active: true},
+  {provider: "claude", id: "second", provider_account_uuid: "uuid-second"}
 ], "claude", ""), null)
 
 check("Claude active account stays unknown without a registered UUID", forecast.activeAccount([
-  {provider: "claude", id: "only", accountUuid: null}
+  {provider: "claude", id: "only", provider_account_uuid: null}
 ], "claude", "uuid-current"), null)
 
 check("Claude active account stays unknown when local UUID is not registered", forecast.activeAccount([
-  {provider: "claude", id: "first", accountUuid: "uuid-first"},
-  {provider: "claude", id: "second", accountUuid: "uuid-second"}
+  {provider: "claude", id: "first", provider_account_uuid: "uuid-first"},
+  {provider: "claude", id: "second", provider_account_uuid: "uuid-second"}
 ], "claude", "uuid-unmatched"), null)
 
 check("duplicate registered Claude UUIDs remain ambiguous", forecast.activeAccount([
-  {provider: "claude", id: "first", accountUuid: "uuid-current"},
-  {provider: "claude", id: "second", accountUuid: "uuid-current"}
+  {provider: "claude", id: "first", provider_account_uuid: "uuid-current"},
+  {provider: "claude", id: "second", provider_account_uuid: "uuid-current"}
 ], "claude", "uuid-current"), null)
 
 check("Codex fallback behavior remains unchanged", forecast.activeAccount([
