@@ -24,12 +24,13 @@ Panel {
   property var aggregateForecast: null
   property string generatedAt: ""
   property string forecastGeneratedAt: ""
+  property string claudeAccountUuid: ""
   property string forecastStatus: "unavailable"
   property string errorText: ""
   property bool refreshing: false
   property double nowMs: Date.now()
 
-  readonly property var compatiblePools: pools.filter(function(pool) { return pool.comparable === true })
+  readonly property var compatiblePools: Forecast.compatiblePools(pools)
   readonly property var codexAccounts: accountsFor("codex")
   readonly property var claudeAccounts: accountsFor("claude")
   readonly property var activeCodex: activeFor("codex")
@@ -50,17 +51,33 @@ Panel {
     var out = []
     for (var i = 0; i < accounts.length; i++)
       if (accounts[i].provider === provider) out.push(accounts[i])
+    var active = provider === "claude"
+      ? Forecast.activeAccount(out, provider, claudeAccountUuid) : null
     out.sort(function(a, b) {
-      if (a.active !== b.active) return a.active ? -1 : 1
+      var aActive = provider === "claude" ? active === a : a.active === true
+      var bActive = provider === "claude" ? active === b : b.active === true
+      if (aActive !== bActive) return aActive ? -1 : 1
       return headlinePercent(a) - headlinePercent(b)
     })
     return out
   }
 
+  function withActiveClaudeAccount(source, providerAccountUuid) {
+    source = source || []
+    var active = Forecast.activeAccount(source, "claude", providerAccountUuid)
+    var out = []
+    for (var i = 0; i < source.length; i++) {
+      var copy = {}
+      for (var key in source[i]) copy[key] = source[i][key]
+      if (copy.provider === "claude") copy.active = active === source[i]
+      out.push(copy)
+    }
+    return out
+  }
+
   function activeFor(provider) {
-    var list = accountsFor(provider)
-    for (var i = 0; i < list.length; i++) if (list[i].active) return list[i]
-    return list.length > 0 ? list[0] : null
+    return Forecast.activeAccount(accountsFor(provider), provider,
+                                  provider === "claude" ? claudeAccountUuid : "")
   }
 
   function headlineWindow(account) {
@@ -241,7 +258,8 @@ Panel {
   function applyPayload(text) {
     try {
       var payload = JSON.parse(String(text || ""))
-      accounts = payload.accounts || []
+      claudeAccountUuid = String(payload.active_claude_uuid || "")
+      accounts = withActiveClaudeAccount(payload.accounts || [], claudeAccountUuid)
       pools = payload.pools || []
       aggregateForecast = payload.forecast || null
       nowMs = Date.now()
@@ -251,6 +269,8 @@ Panel {
       errorText = ""
     } catch (error) {
       errorText = "Lachesis returned unreadable data"
+      claudeAccountUuid = ""
+      accounts = withActiveClaudeAccount(accounts, "")
       clearForecasts()
     }
   }
@@ -317,7 +337,9 @@ Panel {
     fixedWidth: usageRow.implicitWidth + Style.space(24)
     horizontalMargin: 0
     verticalPadding: 8.75
-    tooltipText: "Active account usage and runway"
+    tooltipText: root.claudeAccounts.length > 0 && !root.activeClaude
+      ? "Claude account unknown · open for per-account runway"
+      : "Active account usage and runway"
     active: root.alarming
     useActiveColor: false
     foreground: root.alarming
@@ -348,7 +370,8 @@ Panel {
         iconSource: "file:///usr/share/omarchy/shell/plugins/agents/assets/claude.svg"
         iconName: "Claude"
         account: root.activeClaude
-        valueText: root.compactStat(root.activeClaude)
+        valueText: root.activeClaude ? root.compactStat(root.activeClaude)
+          : root.claudeAccounts.length > 0 ? "?" : "—"
       }
     }
     onPressed: function(buttonCode) {
@@ -474,6 +497,16 @@ Panel {
           }
 
           PanelSeparator { width: parent.width; foreground: root.foreground }
+
+          Text {
+            visible: root.claudeAccounts.length > 0 && !root.activeClaude
+            width: parent.width
+            text: "Active Claude account unknown · showing each account separately"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
 
           ProviderSection {
             width: parent.width

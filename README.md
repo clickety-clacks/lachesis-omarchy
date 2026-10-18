@@ -14,7 +14,7 @@ The widget needs `bash`, `curl`, and `jq`. Its forecast presentation test needs 
 
 By default, the widget reads Lachesis at `localhost:7843`. If Lachesis runs on another machine, set **Lachesis host** and **SSH user** in the widget settings. The remote user must be able to connect with SSH without an interactive prompt and run `curl` against `127.0.0.1:7843` on that machine. Leaving **SSH user** blank uses the current local username.
 
-The widget reads the local Codex account ID from `~/.codex/auth.json` to mark the active Codex account. It does not send that file or any token to Lachesis. If it cannot read the file, accounts still appear without an active Codex marker. With one Claude account, that account is marked active.
+The widget reads the local Codex account ID from `~/.codex/auth.json` and only the Claude account UUID at `~/.claude.json` → `oauthAccount.accountUuid`. It matches the Claude UUID against the per-account `provider_account_uuid` field returned by Lachesis; that field may be null when unavailable. It does not send either file or any token to Lachesis. If the Claude UUID is missing or does not match exactly one registered account, the active Claude account is shown as unknown while the per-account details remain available.
 
 Omarchy clones plugins from Git and updates them with a fast-forward pull. To update an installation, run `omarchy plugin update mike.lachesis-usage`. The plugin ID remains `mike.lachesis-usage` so existing Omarchy layouts and IPC shortcuts keep working.
 
