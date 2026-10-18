@@ -129,7 +129,7 @@ Panel {
 
   function stateColor(kind) {
     if (kind === "exhausted" || kind === "stale" || kind === "unavailable" || kind === "elapsed") return root.urgent
-    if (kind === "estimate") return root.foreground
+    if (kind === "estimate" || kind === "reset") return root.foreground
     return root.dim
   }
 
@@ -628,6 +628,7 @@ Panel {
     readonly property var windows: root.displayWindows(account)
     readonly property var forecast: root.forecastFor(account)
     readonly property string caveat: root.accountCaveat(account)
+    readonly property bool prominentRunway: accountCard.account && accountCard.account.provider === "claude"
     spacing: Style.space(6)
 
     Controls.Button {
@@ -642,6 +643,7 @@ Panel {
       Accessible.name: root.shortLabel(accountCard.account) + ", " +
         (root.headlinePercent(accountCard.account) >= 0 ? root.headlinePercent(accountCard.account) + " percent used, " : "") +
         accountCard.runway.label + (accountCard.caveat ? ", " + accountCard.caveat : "") +
+        ", " + accountCard.runway.detail +
         (accountCard.expanded ? ", collapse details" : ", expand details")
 
       contentItem: Column {
@@ -673,10 +675,48 @@ Panel {
           }
         }
 
+        BorderSurface {
+          visible: accountCard.prominentRunway
+          width: parent.width
+          implicitHeight: runwaySummary.implicitHeight + Style.space(16)
+          color: root.alpha(root.foreground, 0.035)
+          borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
+          radius: Style.cornerRadius
+
+          Column {
+            id: runwaySummary
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.margins: Style.space(8)
+            spacing: Style.space(3)
+
+            Text {
+              width: parent.width
+              text: accountCard.runway.label + (accountCard.caveat ? " · " + accountCard.caveat : "")
+              color: root.stateColor(accountCard.runway.kind)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              width: parent.width
+              text: accountCard.runway.detail
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+          }
+        }
+
         Text {
+          visible: !accountCard.prominentRunway
           width: parent.width
           text: accountCard.runway.label + (accountCard.caveat ? " · " + accountCard.caveat : "")
-          color: accountCard.caveat ? root.urgent : root.stateColor(accountCard.runway.kind)
+          color: root.stateColor(accountCard.runway.kind)
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
@@ -733,6 +773,7 @@ Panel {
         wrapMode: Text.WordWrap
       }
       Text {
+        visible: !accountCard.prominentRunway
         width: parent.width
         text: accountCard.runway.detail
         color: root.dim
