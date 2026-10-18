@@ -88,7 +88,7 @@ jq -cn \
       {
         id: $id,
         provider: $provider,
-        provider_account_uuid: (if $provider == "claude" then ($meta.provider_account_uuid // null) else null end),
+        accountUuid: (if $provider == "claude" then ($meta.accountUuid // null) else null end),
         label: ($sample.label // $meta.label // (($provider | tostring | ascii_upcase) + " account")),
         plan: ($sample.plan // $forecast_row.plan // ""),
         active: (

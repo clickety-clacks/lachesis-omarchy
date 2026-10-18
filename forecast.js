@@ -26,7 +26,7 @@ function activeAccount(accounts, provider, providerAccountUuid) {
     if (account.provider !== provider) continue
     matches.push(account)
     if (provider === "claude" && providerAccountUuid &&
-        account.provider_account_uuid === providerAccountUuid) uuidMatches.push(account)
+        account.accountUuid === providerAccountUuid) uuidMatches.push(account)
     if (provider !== "claude" && account.active === true) active.push(account)
   }
   if (provider === "claude") {
