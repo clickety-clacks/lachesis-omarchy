@@ -16,6 +16,34 @@ function formatDuration(ms) {
   return Math.max(1, minutes) + "m"
 }
 
+function activeAccount(accounts, provider, providerAccountUuid) {
+  var matches = []
+  var active = []
+  var uuidMatches = []
+  accounts = accounts || []
+  for (var i = 0; i < accounts.length; i++) {
+    var account = accounts[i]
+    if (account.provider !== provider) continue
+    matches.push(account)
+    if (provider === "claude" && providerAccountUuid &&
+        account.provider_account_uuid === providerAccountUuid) uuidMatches.push(account)
+    if (provider !== "claude" && account.active === true) active.push(account)
+  }
+  if (provider === "claude") {
+    return providerAccountUuid && uuidMatches.length === 1 ? uuidMatches[0] : null
+  }
+  if (active.length === 1) return active[0]
+  return matches.length > 0 ? matches[0] : null
+}
+
+function compatiblePools(pools) {
+  return pools.filter(function(pool) { return pool.comparable === true })
+}
+
+function runwayIsUrgent(kind) {
+  return kind === "exhausted" || kind === "stale" || kind === "unavailable" || kind === "elapsed"
+}
+
 function estimateDate(forecast) {
   return forecast ? timestampMs(forecast.exhaustion_at) : NaN
 }
@@ -160,6 +188,9 @@ if (typeof module !== "undefined") {
   module.exports = {
     timestampMs: timestampMs,
     formatDuration: formatDuration,
+    activeAccount: activeAccount,
+    compatiblePools: compatiblePools,
+    runwayIsUrgent: runwayIsUrgent,
     statusLabel: statusLabel,
     runway: runway,
     windowRunway: windowRunway,

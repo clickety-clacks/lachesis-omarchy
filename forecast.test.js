@@ -20,6 +20,66 @@ check("future estimate formats hours", forecast.runway({
   detail: "Runs out in 3h 30m"
 })
 
+check("qualified finite runway keeps its qualification", forecast.runway({
+  status: "estimated_qualified",
+  exhaustion_at: "2026-09-21T15:30:00Z",
+  account_status: "ready",
+  qualification: "Plan unknown"
+}, now), {
+  kind: "estimate",
+  label: "~3h 30m left",
+  detail: "Runs out in 3h 30m · Plan unknown"
+})
+
+check("unknown-plan qualification is context, not runway urgency", [
+  forecast.runwayIsUrgent(forecast.runway({
+    status: "estimated_qualified",
+    exhaustion_at: "2026-09-21T15:30:00Z",
+    account_status: "ready",
+    qualification: "Plan unknown"
+  }, now).kind),
+  forecast.runwayIsUrgent("reset"),
+  forecast.runwayIsUrgent("exhausted")
+], [false, false, true])
+
+check("Claude active account matches the provider UUID, independent of usage", forecast.activeAccount([
+  {provider: "claude", id: "higher-usage", provider_account_uuid: "uuid-other", used_percent: 95},
+  {provider: "claude", id: "active", provider_account_uuid: "uuid-current", used_percent: 5}
+], "claude", "uuid-current"), {
+  provider: "claude", id: "active", provider_account_uuid: "uuid-current", used_percent: 5
+})
+
+check("Claude active account stays unknown without a local UUID", forecast.activeAccount([
+  {provider: "claude", id: "first", provider_account_uuid: "uuid-first", active: true},
+  {provider: "claude", id: "second", provider_account_uuid: "uuid-second"}
+], "claude", ""), null)
+
+check("Claude active account stays unknown without a registered UUID", forecast.activeAccount([
+  {provider: "claude", id: "only", provider_account_uuid: null}
+], "claude", "uuid-current"), null)
+
+check("Claude active account stays unknown when local UUID is not registered", forecast.activeAccount([
+  {provider: "claude", id: "first", provider_account_uuid: "uuid-first"},
+  {provider: "claude", id: "second", provider_account_uuid: "uuid-second"}
+], "claude", "uuid-unmatched"), null)
+
+check("duplicate registered Claude UUIDs remain ambiguous", forecast.activeAccount([
+  {provider: "claude", id: "first", provider_account_uuid: "uuid-current"},
+  {provider: "claude", id: "second", provider_account_uuid: "uuid-current"}
+], "claude", "uuid-current"), null)
+
+check("Codex fallback behavior remains unchanged", forecast.activeAccount([
+  {provider: "codex", id: "first"},
+  {provider: "codex", id: "second", active: false}
+], "codex"), {provider: "codex", id: "first"})
+
+const knownPool = {id: "known", comparable: true}
+check("only explicitly comparable pools appear in combined runway", forecast.compatiblePools([
+  knownPool,
+  {id: "unknown-plan", comparable: false},
+  {id: "missing-comparability"}
+]), [knownPool])
+
 check("stale estimate cannot look current", forecast.runway({
   status: "stale",
   exhaustion_at: "2026-09-21T15:30:00Z",

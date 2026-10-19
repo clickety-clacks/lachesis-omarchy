@@ -4,9 +4,13 @@ set -euo pipefail
 host="${1:-localhost}"
 user="${2:-$(id -un)}"
 active_codex=""
+active_claude_uuid=""
 
 if [[ -r "${HOME}/.codex/auth.json" ]]; then
   active_codex=$(jq -r '.tokens.account_id // .account_id // empty' "${HOME}/.codex/auth.json" 2>/dev/null || true)
+fi
+if [[ -r "${HOME}/.claude.json" ]]; then
+  active_claude_uuid=$(jq -r '.oauthAccount.accountUuid // empty' "${HOME}/.claude.json" 2>/dev/null || true)
 fi
 
 fetch_remote() {
@@ -55,6 +59,7 @@ jq -cn \
   --argjson forecast "$forecast_json" \
   --argjson registry "$registry_json" \
   --arg active_codex "$active_codex" \
+  --arg active_claude_uuid "$active_claude_uuid" \
   --arg forecast_fetch_error "$forecast_fetch_error" '
   ($usage.results // []) as $usage_rows |
   ($forecast.accounts // []) as $forecast_rows |
@@ -64,11 +69,6 @@ jq -cn \
     ($usage_rows[]?.account_id),
     ($forecast_rows[]?.account_id)
   ] | map(select(. != null and . != "")) | unique) as $ids |
-  ([
-    ($registry_rows[]? | select(.provider == "claude") | .id),
-    ($usage_rows[]? | select(.sample.provider == "claude") | .account_id),
-    ($forecast_rows[]? | select(.provider == "claude") | .account_id)
-  ] | map(select(. != null and . != "")) | unique | length) as $claude_count |
   {
     generated_at: ($usage.generated_at // ""),
     forecast_generated_at: ($forecast.generated_at // ""),
@@ -77,6 +77,7 @@ jq -cn \
     pools: ($forecast.pools // []),
     forecast_status: ($forecast.status // "unavailable"),
     forecast_diagnostics: ($forecast.diagnostics // []),
+    active_claude_uuid: $active_claude_uuid,
     accounts: [
       $ids[] as $id |
       (first($registry_rows[]? | select(.id == $id)) // {}) as $meta |
@@ -87,13 +88,12 @@ jq -cn \
       {
         id: $id,
         provider: $provider,
+        provider_account_uuid: (if $provider == "claude" then ($meta.provider_account_uuid // null) else null end),
         label: ($sample.label // $meta.label // (($provider | tostring | ascii_upcase) + " account")),
         plan: ($sample.plan // $forecast_row.plan // ""),
         active: (
           if $provider == "codex" then
             (($id == $active_codex or ($sample.raw.account_id // "") == $active_codex) and $active_codex != "")
-          elif $provider == "claude" then
-            $claude_count == 1
           else false end
         ),
         status: ($meta.status // $forecast_row.account_status // "unknown"),
