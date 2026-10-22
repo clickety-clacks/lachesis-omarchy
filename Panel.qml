@@ -159,7 +159,8 @@ Panel {
   function accountCaveat(account) {
     var forecast = forecastFor(account)
     if (!forecast) return ""
-    if (forecast.qualification || forecast.status === "estimated_qualified") return "Qualified"
+    if (forecast.qualification) return String(forecast.qualification)
+    if (forecast.status === "estimated_qualified") return "Qualified estimate"
     if ((forecast.diagnostics || []).length > 0) return "Limited estimate"
     return ""
   }
@@ -675,43 +676,6 @@ Panel {
           }
         }
 
-        BorderSurface {
-          visible: accountCard.prominentRunway
-          width: parent.width
-          implicitHeight: runwaySummary.implicitHeight + Style.space(16)
-          color: root.alpha(root.foreground, 0.035)
-          borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
-          radius: Style.cornerRadius
-
-          Column {
-            id: runwaySummary
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.margins: Style.space(8)
-            spacing: Style.space(3)
-
-            Text {
-              width: parent.width
-              text: accountCard.runway.label + (accountCard.caveat ? " · " + accountCard.caveat : "")
-              color: root.stateColor(accountCard.runway.kind)
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              font.bold: true
-              wrapMode: Text.WordWrap
-            }
-
-            Text {
-              width: parent.width
-              text: accountCard.runway.detail
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
-            }
-          }
-        }
-
         Text {
           visible: !accountCard.prominentRunway
           width: parent.width
@@ -754,6 +718,47 @@ Panel {
               wrapMode: Text.WordWrap
             }
           }
+        }
+      }
+    }
+
+    BorderSurface {
+      visible: accountCard.prominentRunway
+      width: accountCard.width
+      implicitHeight: runwaySummary.implicitHeight + Style.space(16)
+      color: root.alpha(root.foreground, 0.035)
+      borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
+      radius: Style.cornerRadius
+
+      Column {
+        id: runwaySummary
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.margins: Style.space(8)
+        spacing: Style.space(3)
+
+        Text {
+          width: parent.width
+          text: accountCard.runway.label
+          color: root.stateColor(accountCard.runway.kind)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          wrapMode: Text.WordWrap
+        }
+
+        Text {
+          width: parent.width
+          text: {
+            var detail = String(accountCard.runway.detail || "")
+            var caveat = String(accountCard.caveat || "")
+            return caveat && detail.indexOf(caveat) < 0 ? detail + " · " + caveat : detail
+          }
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
       }
     }

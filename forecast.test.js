@@ -167,6 +167,19 @@ check("exhausted window confirms exhaustion", forecast.runway({
   detail: "Allowance is spent"
 })
 
+const exhaustedRunway = forecast.runway({
+  status: "exhausted",
+  account_status: "ready"
+}, now)
+check("account-level exhaustion stays explicit and urgent", [
+  exhaustedRunway,
+  forecast.runwayIsUrgent(exhaustedRunway.kind)
+], [{
+  kind: "exhausted",
+  label: "Exhausted",
+  detail: "Allowance is spent"
+}, true])
+
 check("history error blocks a numeric estimate", forecast.runway({
   status: "estimated_qualified",
   exhaustion_at: "2026-09-21T15:30:00Z",
