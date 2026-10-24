@@ -73,13 +73,6 @@ check("Codex fallback behavior remains unchanged", forecast.activeAccount([
   {provider: "codex", id: "second", active: false}
 ], "codex"), {provider: "codex", id: "first"})
 
-const knownPool = {id: "known", comparable: true}
-check("only explicitly comparable pools appear in combined runway", forecast.compatiblePools([
-  knownPool,
-  {id: "unknown-plan", comparable: false},
-  {id: "missing-comparability"}
-]), [knownPool])
-
 check("stale estimate cannot look current", forecast.runway({
   status: "stale",
   exhaustion_at: "2026-09-21T15:30:00Z",
@@ -201,44 +194,54 @@ check("incomplete pool cannot use a date", forecast.runway({
   detail: "Some compatible capacity has no measured rate"
 })
 
-check("one exhausted member does not exhaust a mixed pool", forecast.poolRunway({
-  status: "incomplete",
-  exhaustion_at: null,
-  members: [
-    {status: "exhausted", resets_at: "2026-09-26T08:00:00Z"},
-    {status: "steady", resets_at: "2026-09-28T08:00:00Z"}
-  ]
-}, now), {
-  kind: "unknown",
-  label: "Incomplete estimate",
-  detail: "Some compatible capacity has no measured rate"
-})
+const hour = 3600000
+function account(provider, windows, status) {
+  return {provider: provider, forecast: {account_status: status || "ready", windows: windows}}
+}
+function iso(ms) { return new Date(ms).toISOString() }
 
-check("a mixed pool can keep its finite aggregate estimate", forecast.poolRunway({
-  status: "estimated",
-  exhaustion_at: "2026-09-21T15:30:00Z",
-  members: [
-    {status: "exhausted", resets_at: "2026-09-26T08:00:00Z"},
-    {status: "steady", resets_at: "2026-09-28T08:00:00Z"}
-  ]
-}, now), {
-  kind: "estimate",
-  label: "~3h 30m left",
-  detail: "Runs out in 3h 30m"
-})
+check("rotation lasts when the combined allowance outlasts the next reset", forecast.harnessRunway([
+  account("codex", [{id: "primary", remaining_percent: 20, rate_percent_per_hour: 2, resets_at: iso(now + 30 * hour)}]),
+  account("codex", [{id: "primary", remaining_percent: 100, resets_at: iso(now + 100 * hour)}]),
+  account("claude", [{id: "seven_day", remaining_percent: 0, rate_percent_per_hour: 50, resets_at: iso(now + hour)}])
+], "codex", now), {kind: "lasts", runsOut: now + 60 * hour, nextReset: now + 30 * hour})
 
-check("a pool waits after its earliest member reset", forecast.poolRunway({
-  status: "estimated",
-  exhaustion_at: "2026-09-21T15:30:00Z",
-  members: [
-    {status: "exhausted", resets_at: "2026-09-21T11:59:00Z"},
-    {status: "steady", resets_at: "2026-09-28T08:00:00Z"}
-  ]
-}, now), {
-  kind: "pending",
-  label: "Awaiting update",
-  detail: "The limit reset; waiting for fresh usage"
-})
+check("rotation falls short when the allowance runs out before the next reset", forecast.harnessRunway([
+  account("codex", [{id: "primary", remaining_percent: 10, rate_percent_per_hour: 3, resets_at: iso(now + 80 * hour)}]),
+  account("codex", [{id: "primary", remaining_percent: 50, rate_percent_per_hour: 1, resets_at: iso(now + 90 * hour)}])
+], "codex", now), {kind: "short", runsOut: now + 15 * hour, nextReset: now + 80 * hour})
+
+check("an untouched account's reset gives nothing back", forecast.harnessRunway([
+  account("codex", [{id: "primary", remaining_percent: 40, rate_percent_per_hour: 2, resets_at: iso(now + 50 * hour)}]),
+  account("codex", [{id: "primary", remaining_percent: 100, resets_at: iso(now + 5 * hour)}])
+], "codex", now), {kind: "lasts", runsOut: now + 70 * hour, nextReset: now + 50 * hour})
+
+check("a spent account's burn moves to the accounts that are left", forecast.harnessRunway([
+  account("claude", [
+    {id: "five_hour", remaining_percent: 100},
+    {id: "seven_day", remaining_percent: 0, rate_percent_per_hour: 2, resets_at: iso(now + 60 * hour)}
+  ]),
+  account("claude", [
+    {id: "five_hour", remaining_percent: 90, rate_percent_per_hour: 1, resets_at: iso(now + 2 * hour)},
+    {id: "seven_day", remaining_percent: 90, rate_percent_per_hour: 1, resets_at: iso(now + 150 * hour)}
+  ])
+], "claude", now), {kind: "short", runsOut: now + 30 * hour, nextReset: now + 60 * hour})
+
+check("a passed reset counts the account as full again", forecast.harnessRunway([
+  account("codex", [{id: "primary", remaining_percent: 0, rate_percent_per_hour: 1, resets_at: iso(now - hour)}])
+], "codex", now).kind, "lasts")
+
+check("no recent use cannot run out", forecast.harnessRunway([
+  account("codex", [{id: "primary", remaining_percent: 70, resets_at: iso(now + 10 * hour)}])
+], "codex", now).kind, "idle")
+
+check("a rate-limited account still counts its recent sample", forecast.harnessRunway([
+  account("claude", [{id: "seven_day", remaining_percent: 50, rate_percent_per_hour: 1, resets_at: iso(now + 10 * hour)}], "degraded")
+], "claude", now).kind, "lasts")
+
+check("accounts that need sign-in are left out", forecast.harnessRunway([
+  account("codex", [{id: "primary", remaining_percent: 70, rate_percent_per_hour: 1}], "reauth_required")
+], "codex", now).kind, "unavailable")
 
 check("reauth is actionable", forecast.runway({
   status: "reauth_required",

@@ -36,10 +36,6 @@ function activeAccount(accounts, provider, providerAccountUuid) {
   return matches.length > 0 ? matches[0] : null
 }
 
-function compatiblePools(pools) {
-  return pools.filter(function(pool) { return pool.comparable === true })
-}
-
 function runwayIsUrgent(kind) {
   return kind === "exhausted" || kind === "stale" || kind === "unavailable" || kind === "elapsed"
 }
@@ -162,18 +158,64 @@ function windowRunway(window, nowMs) {
   return {kind: "unknown", label: status || "No estimate", detail: "No finite exhaustion time"}
 }
 
-function poolRunway(pool, nowMs) {
-  if (!pool) return runway(null, nowMs, "unavailable")
-  var members = pool.members || []
-  var memberWindows = []
-  for (var i = 0; i < members.length; i++)
-    memberWindows.push({resets_at: members[i].resets_at || ""})
-  return runway({
-    status: String(pool.status || ""),
-    exhaustion_at: pool.exhaustion_at || null,
-    account_status: "ready",
-    windows: memberWindows
-  }, nowMs, "ready")
+// One answer per harness: if work moves to another account as each one runs
+// out, does the combined allowance last until an account gets allowance back?
+// Every account's allowance counts the same, whatever its plan.
+var HARNESS_WINDOWS = {codex: ["primary"], claude: ["five_hour", "seven_day"]}
+
+function harnessWindow(forecasts, windowId, now) {
+  var remaining = 0
+  var rate = 0
+  var nextReset = NaN
+  var members = 0
+  for (var i = 0; i < forecasts.length; i++) {
+    var windows = forecasts[i].windows || []
+    var window = null
+    for (var j = 0; j < windows.length; j++) if (windows[j].id === windowId) window = windows[j]
+    if (!window) continue
+    var left = Number(window.remaining_percent)
+    if (!isFinite(left)) continue
+    members++
+    var reset = resetDate(window)
+    // A reset that already passed has given the allowance back.
+    if (isFinite(reset) && reset <= now) left = 100
+    remaining += left
+    var accountRate = Number(window.rate_percent_per_hour)
+    if (accountRate > 0 && isFinite(accountRate)) rate += accountRate
+    if (left < 100 && isFinite(reset) && reset > now && !(reset >= nextReset)) nextReset = reset
+  }
+  if (members === 0) return null
+  var runsOut = rate > 0 ? now + remaining / rate * 3600000 : NaN
+  var lasts = !isFinite(runsOut) || !isFinite(nextReset) || runsOut >= nextReset
+  return {windowId: windowId, lasts: lasts, runsOut: runsOut, nextReset: nextReset, remaining: remaining}
+}
+
+function harnessRunway(accounts, provider, nowMs) {
+  var now = Number(nowMs)
+  if (!isFinite(now)) now = Date.now()
+  var forecasts = []
+  accounts = accounts || []
+  for (var i = 0; i < accounts.length; i++) {
+    var forecast = accounts[i].forecast
+    // A failed refresh (degraded) still leaves a recent sample worth counting.
+    if (accounts[i].provider === provider && forecast && forecast.status !== "stale" &&
+        forecast.account_status !== "reauth_required") forecasts.push(forecast)
+  }
+  var ids = HARNESS_WINDOWS[provider] || []
+  var results = []
+  for (var k = 0; k < ids.length; k++) {
+    var result = harnessWindow(forecasts, ids[k], now)
+    if (result) results.push(result)
+  }
+  if (results.length === 0) return {kind: "unavailable", runsOut: NaN, nextReset: NaN}
+  var short = null
+  for (var m = 0; m < results.length; m++)
+    if (!results[m].lasts && (!short || results[m].runsOut < short.runsOut)) short = results[m]
+  if (short) return {kind: "short", runsOut: short.runsOut, nextReset: short.nextReset}
+  // Everything lasts; report against the longest window, the one that matters most.
+  var longest = results[results.length - 1]
+  if (!isFinite(longest.runsOut)) return {kind: "idle", runsOut: NaN, nextReset: longest.nextReset}
+  return {kind: "lasts", runsOut: longest.runsOut, nextReset: longest.nextReset}
 }
 
 function coverageText(hours) {
@@ -189,12 +231,11 @@ if (typeof module !== "undefined") {
     timestampMs: timestampMs,
     formatDuration: formatDuration,
     activeAccount: activeAccount,
-    compatiblePools: compatiblePools,
     runwayIsUrgent: runwayIsUrgent,
     statusLabel: statusLabel,
     runway: runway,
     windowRunway: windowRunway,
-    poolRunway: poolRunway,
+    harnessRunway: harnessRunway,
     coverageText: coverageText
   }
 }

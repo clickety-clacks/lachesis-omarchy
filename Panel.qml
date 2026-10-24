@@ -20,8 +20,6 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   property var accounts: []
-  property var pools: []
-  property var aggregateForecast: null
   property string generatedAt: ""
   property string forecastGeneratedAt: ""
   property string claudeAccountUuid: ""
@@ -30,7 +28,6 @@ Panel {
   property bool refreshing: false
   property double nowMs: Date.now()
 
-  readonly property var compatiblePools: Forecast.compatiblePools(pools)
   readonly property var codexAccounts: accountsFor("codex")
   readonly property var claudeAccounts: accountsFor("claude")
   readonly property var activeCodex: activeFor("codex")
@@ -112,14 +109,31 @@ Panel {
                            account ? String(account.usage_status || "") : "unavailable")
   }
 
-  function poolRunway(pool) {
-    if (!pool) return Forecast.runway(null, nowMs, "unavailable")
-    var generated = Forecast.timestampMs(aggregateForecast && aggregateForecast.generated_at
-      ? aggregateForecast.generated_at : forecastGeneratedAt)
-    var ttl = Math.max(60000, Number(setting("refreshIntervalSec", 300)) * 2000)
-    if (!isFinite(generated) || nowMs - generated > ttl)
-      return Forecast.runway(null, nowMs, "unavailable")
-    return Forecast.poolRunway(pool, nowMs)
+  function harnessRunway(provider) {
+    var fresh = []
+    for (var i = 0; i < accounts.length; i++) {
+      var copy = {}
+      for (var key in accounts[i]) copy[key] = accounts[i][key]
+      copy.forecast = forecastFor(accounts[i])
+      fresh.push(copy)
+    }
+    return Forecast.harnessRunway(fresh, provider, nowMs)
+  }
+
+  function shortTime(ms) { return Qt.formatDateTime(new Date(ms), "ddd h:mm AP") }
+
+  function harnessVerdict(runway) {
+    if (runway.kind === "short") return "Runs out " + formatDuration(runway.nextReset - runway.runsOut) + " early"
+    if (runway.kind === "lasts" || runway.kind === "idle") return "Lasts to reset"
+    return "No estimate"
+  }
+
+  function harnessDetail(runway) {
+    var reset = isFinite(runway.nextReset) ? "next reset " + shortTime(runway.nextReset) : "no reset pending"
+    if (runway.kind === "short") return "Runs out " + shortTime(runway.runsOut) + " · " + reset
+    if (runway.kind === "lasts") return "Enough until " + shortTime(runway.runsOut) + " · " + reset
+    if (runway.kind === "idle") return "No recent use · " + reset
+    return "No usage history yet"
   }
 
   function compactStat(account) {
@@ -137,23 +151,6 @@ Panel {
     list = list || []
     for (var i = 0; i < list.length; i++) if (String(list[i].code || "") === code) return true
     return false
-  }
-
-  function poolTitle(pool) {
-    if (!pool) return "Quota pool"
-    var title = root.providerName(pool.provider) + " · " + String(pool.window_name || pool.window_id || "quota")
-    if (!pool.comparable && pool.members && pool.members.length === 1)
-      title += " · " + String(pool.members[0].label || "account")
-    return title
-  }
-
-  function poolCaveat(pool) {
-    if (!pool) return ""
-    if (hasDiagnostic(pool.diagnostics, "POOL_CAPPED_DEMAND_CENSORED")) return "100% cap hides demand"
-    if (hasDiagnostic(pool.diagnostics, "POOL_MISSING_BURN")) return "Missing recent burn on one or more accounts"
-    if (hasDiagnostic(pool.diagnostics, "POOL_ACCOUNT_QUALIFIED")) return "One account has another unestimated window"
-    if ((pool.diagnostics || []).length > 0) return "Estimate has limitations"
-    return ""
   }
 
   function accountCaveat(account) {
@@ -240,8 +237,6 @@ Panel {
       current.push(copy)
     }
     accounts = current
-    pools = []
-    aggregateForecast = null
     forecastGeneratedAt = ""
     forecastStatus = "unavailable"
   }
@@ -261,8 +256,6 @@ Panel {
       var payload = JSON.parse(String(text || ""))
       claudeAccountUuid = String(payload.active_claude_uuid || "")
       accounts = withActiveClaudeAccount(payload.accounts || [], claudeAccountUuid)
-      pools = payload.pools || []
-      aggregateForecast = payload.forecast || null
       nowMs = Date.now()
       generatedAt = String(payload.generated_at || "")
       forecastGeneratedAt = String(payload.forecast_generated_at || "")
@@ -461,34 +454,18 @@ Panel {
           }
 
           Column {
-            visible: root.compatiblePools.length > 0
             width: parent.width
             spacing: Style.space(6)
+            HarnessCard { width: parent.width; provider: "codex" }
+            HarnessCard { width: parent.width; provider: "claude" }
             Text {
-              text: "Combined runway · if switching accounts"
+              width: parent.width
+              text: "At the last 48 hours' pace, switching accounts as each one runs out"
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
             }
-            Repeater {
-              model: root.compatiblePools
-              PoolCard {
-                required property var modelData
-                width: panelFlick.width
-                pool: modelData
-              }
-            }
-          }
-
-          Text {
-            visible: root.compatiblePools.length === 0
-            width: parent.width
-            text: root.refreshing ? "Loading runway estimates…" :
-              root.forecastStatus === "unavailable" ? "Runway estimates unavailable" : "No compatible account pools"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
           }
 
           ProviderSection {
@@ -814,119 +791,56 @@ Panel {
     }
   }
 
-  component PoolCard: BorderSurface {
-    id: poolCard
-    property var pool: null
-    property bool expanded: false
-    readonly property var runway: root.poolRunway(pool)
-    implicitHeight: poolContent.implicitHeight + Style.space(16)
+  component HarnessCard: BorderSurface {
+    id: harnessCard
+    property string provider: ""
+    readonly property var runway: root.harnessRunway(provider)
+    implicitHeight: harnessContent.implicitHeight + Style.space(16)
     color: root.alpha(root.foreground, 0.035)
     borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
     radius: Style.cornerRadius
+    Accessible.name: root.providerName(provider) + ", " + root.harnessVerdict(runway) + ", " +
+      root.harnessDetail(runway)
 
     Column {
-      id: poolContent
+      id: harnessContent
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
       anchors.margins: Style.space(8)
-      spacing: Style.space(6)
+      spacing: Style.space(3)
 
-      Controls.Button {
+      Item {
         width: parent.width
-        padding: 0
-        hoverEnabled: true
-        background: Rectangle {
-          color: parent.hovered || parent.activeFocus ? root.alpha(root.foreground, 0.05) : "transparent"
-          radius: Style.cornerRadius
-        }
-        onClicked: poolCard.expanded = !poolCard.expanded
-        Accessible.name: root.poolTitle(poolCard.pool) + ", " + poolCard.runway.label +
-          (root.poolCaveat(poolCard.pool) ? ", qualified" : "") +
-          (poolCard.expanded ? ", collapse details" : ", expand details")
-        contentItem: Column {
-          spacing: Style.space(3)
-          Item {
-            width: parent.width
-            implicitHeight: Math.max(poolTitle.implicitHeight, poolValue.implicitHeight)
-            Text {
-              id: poolTitle
-              text: root.poolTitle(poolCard.pool)
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
-              anchors.left: parent.left
-              anchors.right: poolValue.left
-              anchors.rightMargin: Style.space(8)
-              elide: Text.ElideRight
-            }
-            Text {
-              id: poolValue
-              text: poolCard.runway.label
-              color: root.stateColor(poolCard.runway.kind)
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              font.bold: true
-              anchors.right: parent.right
-            }
-          }
-          Text {
-            width: parent.width
-            text: {
-              if (!poolCard.pool) return ""
-              var plan = poolCard.pool.plan_known && poolCard.pool.plan ? String(poolCard.pool.plan) : "Plan unknown"
-              return plan + " · " + Number(poolCard.pool.capacity_member_count || 0) + " accounts" +
-                (root.poolCaveat(poolCard.pool) ? " · Qualified" : "") +
-                (poolCard.expanded ? "  ▴" : "  ▾")
-            }
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-        }
-      }
-
-      Column {
-        visible: poolCard.expanded
-        width: parent.width
-        spacing: Style.space(5)
+        implicitHeight: Math.max(harnessName.implicitHeight, harnessVerdict.implicitHeight)
         Text {
-          width: parent.width
-          text: poolCard.pool ? (poolCard.pool.members || []).map(function(member) { return member.label }).join(" · ") : ""
+          id: harnessName
+          text: root.providerName(harnessCard.provider)
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
+          font.bold: true
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
         }
         Text {
-          width: parent.width
-          text: "Assumes work can switch between accounts with matching provider, plan and quota window."
-          color: root.dim
+          id: harnessVerdict
+          text: root.harnessVerdict(harnessCard.runway)
+          color: harnessCard.runway.kind === "short" ? root.urgent :
+            harnessCard.runway.kind === "unavailable" ? root.dim : root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
+          font.pixelSize: Style.font.body
+          font.bold: true
+          anchors.right: parent.right
         }
-        Text {
-          width: parent.width
-          text: poolCard.runway.detail +
-            (poolCard.pool ? " · " + Forecast.coverageText(poolCard.pool.coverage_hours) : "") +
-            (root.poolCaveat(poolCard.pool) ? " · " + root.poolCaveat(poolCard.pool) : "")
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
-        }
-        Text {
-          width: parent.width
-          text: poolCard.pool ? (Number(poolCard.pool.remaining_percent_points || 0) / 100).toFixed(1) +
-            " account allowances remaining" : ""
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
-        }
+      }
+      Text {
+        width: parent.width
+        text: root.harnessDetail(harnessCard.runway)
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
       }
     }
   }
