@@ -90,6 +90,7 @@ jq -cn \
         provider: $provider,
         provider_account_uuid: (if $provider == "claude" then ($meta.provider_account_uuid // null) else null end),
         label: ($sample.label // $meta.label // (($provider | tostring | ascii_upcase) + " account")),
+        email: (if ($meta.email | type) == "string" then $meta.email else "" end),
         plan: ($sample.plan // $forecast_row.plan // ""),
         active: (
           if $provider == "codex" then
