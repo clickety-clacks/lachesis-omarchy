@@ -199,7 +199,9 @@ Panel {
     if (!account) return "Not connected"
     var label = String(account.label || "")
     var prefix = account.provider + "-"
-    return label.indexOf(prefix) === 0 ? label.slice(prefix.length) : label
+    label = label.indexOf(prefix) === 0 ? label.slice(prefix.length) : label
+    var email = String(account.email || "").trim()
+    return email ? label + " · " + email : label
   }
 
   function formatDuration(ms) {
