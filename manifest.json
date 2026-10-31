@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "mike.lachesis-usage",
   "name": "Lachesis Usage",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "Mike",
   "description": "Active Codex and Claude usage with reset-aware runway estimates from Lachesis.",
   "kinds": ["bar-widget"],
