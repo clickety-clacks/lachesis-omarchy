@@ -1,6 +1,6 @@
 # Lachesis for Omarchy
 
-An Omarchy bar widget for [Lachesis](https://github.com/clickety-clacks/lachesis). The bar keeps the active Codex and Claude usage percentages visible. Open the panel to see whether each harness lasts until its next reset if you switch accounts as each one runs out, plus per-account usage and reset times.
+An Omarchy bar widget for [Lachesis](https://github.com/clickety-clacks/lachesis). The bar keeps the active Codex and Claude usage percentages visible. Open the panel to see whether each harness lasts until its next reset if you switch accounts as each one runs out, plus per-account usage, reset times, and runway. The combined Claude summary uses only accounts with comparable plans and window durations; unknown or incompatible accounts stay in the per-account list, and unknown-plan estimates are marked as account-only.
 
 ## Install
 

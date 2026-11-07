@@ -123,17 +123,23 @@ Panel {
   function shortTime(ms) { return Qt.formatDateTime(new Date(ms), "ddd h:mm AP") }
 
   function harnessVerdict(runway) {
+    if (runway.label) return runway.label
+    if (runway.kind === "exhausted") return "Exhausted"
     if (runway.kind === "short") return "Runs out " + formatDuration(runway.nextReset - runway.runsOut) + " early"
     if (runway.kind === "lasts" || runway.kind === "idle") return "Lasts to reset"
     return "No estimate"
   }
 
   function harnessDetail(runway) {
+    if (runway.detail) return runway.detail
+    if (runway.kind === "exhausted") return "Comparable Claude allowance is spent"
     var reset = isFinite(runway.nextReset) ? "next reset " + shortTime(runway.nextReset) : "no reset pending"
-    if (runway.kind === "short") return "Runs out " + shortTime(runway.runsOut) + " · " + reset
-    if (runway.kind === "lasts") return "Enough until " + shortTime(runway.runsOut) + " · " + reset
-    if (runway.kind === "idle") return "No recent use · " + reset
-    return "No usage history yet"
+    var detail = "No usage history yet"
+    if (runway.kind === "short") detail = "Runs out " + shortTime(runway.runsOut) + " · " + reset
+    else if (runway.kind === "lasts") detail = "Enough until " + shortTime(runway.runsOut) + " · " + reset
+    else if (runway.kind === "idle") detail = "No recent use · " + reset
+    if (runway.qualified) detail += " · Only comparable plan and window groups are included"
+    return detail
   }
 
   function compactStat(account) {
@@ -155,11 +161,13 @@ Panel {
 
   function accountCaveat(account) {
     var forecast = forecastFor(account)
-    if (!forecast) return ""
-    if (forecast.qualification) return String(forecast.qualification)
-    if (forecast.status === "estimated_qualified") return "Qualified estimate"
-    if ((forecast.diagnostics || []).length > 0) return "Limited estimate"
-    return ""
+    var notes = []
+    if (forecast && forecast.qualification) notes.push(String(forecast.qualification))
+    else if (forecast && forecast.status === "estimated_qualified") notes.push("Qualified estimate")
+    else if (forecast && (forecast.diagnostics || []).length > 0) notes.push("Limited estimate")
+    var planCaveat = Forecast.accountPlanCaveat(account, forecast)
+    if (planCaveat) notes.push(planCaveat)
+    return notes.join(" · ")
   }
 
   function usageNote(account) {
@@ -828,7 +836,7 @@ Panel {
         Text {
           id: harnessVerdict
           text: root.harnessVerdict(harnessCard.runway)
-          color: harnessCard.runway.kind === "short" ? root.urgent :
+          color: harnessCard.runway.kind === "short" || harnessCard.runway.kind === "exhausted" ? root.urgent :
             harnessCard.runway.kind === "unavailable" ? root.dim : root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
