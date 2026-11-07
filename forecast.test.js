@@ -42,6 +42,27 @@ check("unknown-plan qualification is context, not runway urgency", [
   forecast.runwayIsUrgent("exhausted")
 ], [false, false, true])
 
+check("unknown Claude plan stays account-only", forecast.accountPlanCaveat(
+  {provider: "claude"}, {plan: null}
+), "Plan unknown; kept separate from Combined")
+
+check("known Claude plan has no unknown-plan caveat", forecast.accountPlanCaveat(
+  {provider: "claude"}, {plan: "synthetic-plan-a"}
+), "")
+
+const unknownPlanForecast = {
+  plan: null,
+  status: "estimated",
+  exhaustion_at: "2026-09-21T15:30:00Z",
+  account_status: "ready"
+}
+const unknownPlanRunway = forecast.runway(unknownPlanForecast, now)
+check("unknown-plan per-account ETA remains visible with its qualification", [
+  unknownPlanRunway.kind,
+  unknownPlanRunway.label,
+  forecast.accountPlanCaveat({provider: "claude"}, unknownPlanForecast)
+], ["estimate", "~3h 30m left", "Plan unknown; kept separate from Combined"])
+
 check("Claude active account matches the provider UUID, independent of usage", forecast.activeAccount([
   {provider: "claude", id: "higher-usage", provider_account_uuid: "uuid-other", used_percent: 95},
   {provider: "claude", id: "active", provider_account_uuid: "uuid-current", used_percent: 5}
@@ -195,10 +216,17 @@ check("incomplete pool cannot use a date", forecast.runway({
 })
 
 const hour = 3600000
-function account(provider, windows, status) {
-  return {provider: provider, forecast: {account_status: status || "ready", windows: windows}}
+const fiveHourSeconds = 5 * 60 * 60
+const sevenDaySeconds = 7 * 24 * 60 * 60
+function account(provider, windows, status, id, plan) {
+  return {id: id || "synthetic-account", provider: provider, plan: plan,
+    forecast: {plan: plan, account_status: status || "ready", windows: windows}}
 }
 function iso(ms) { return new Date(ms).toISOString() }
+function claudeWindow(id, remaining, rate, reset, seconds, status) {
+  return {id: id, status: status || "steady", remaining_percent: remaining,
+    rate_percent_per_hour: rate, resets_at: reset, window_seconds: seconds}
+}
 
 check("rotation lasts when the combined allowance outlasts the next reset", forecast.harnessRunway([
   account("codex", [{id: "primary", remaining_percent: 20, rate_percent_per_hour: 2, resets_at: iso(now + 30 * hour)}]),
@@ -218,13 +246,13 @@ check("an untouched account's reset gives nothing back", forecast.harnessRunway(
 
 check("a spent account's burn moves to the accounts that are left", forecast.harnessRunway([
   account("claude", [
-    {id: "five_hour", remaining_percent: 100},
-    {id: "seven_day", remaining_percent: 0, rate_percent_per_hour: 2, resets_at: iso(now + 60 * hour)}
-  ]),
+    claudeWindow("five_hour", 100, 0, iso(now + 60 * hour), fiveHourSeconds, "zero_burn"),
+    claudeWindow("seven_day", 0, 2, iso(now + 60 * hour), sevenDaySeconds)
+  ], "ready", "claude-a", "synthetic-plan-a"),
   account("claude", [
-    {id: "five_hour", remaining_percent: 90, rate_percent_per_hour: 1, resets_at: iso(now + 2 * hour)},
-    {id: "seven_day", remaining_percent: 90, rate_percent_per_hour: 1, resets_at: iso(now + 150 * hour)}
-  ])
+    claudeWindow("five_hour", 90, 1, iso(now + 2 * hour), fiveHourSeconds),
+    claudeWindow("seven_day", 90, 1, iso(now + 150 * hour), sevenDaySeconds)
+  ], "ready", "claude-b", "synthetic-plan-a")
 ], "claude", now), {kind: "short", runsOut: now + 30 * hour, nextReset: now + 60 * hour})
 
 check("a passed reset counts the account as full again", forecast.harnessRunway([
@@ -236,8 +264,58 @@ check("no recent use cannot run out", forecast.harnessRunway([
 ], "codex", now).kind, "idle")
 
 check("a rate-limited account still counts its recent sample", forecast.harnessRunway([
-  account("claude", [{id: "seven_day", remaining_percent: 50, rate_percent_per_hour: 1, resets_at: iso(now + 10 * hour)}], "degraded")
+  account("claude", [claudeWindow("seven_day", 50, 1, iso(now + 10 * hour), sevenDaySeconds)],
+    "degraded", "claude-limited", "synthetic-plan-a")
 ], "claude", now).kind, "lasts")
+
+const missingClaudeForecast = forecast.harnessRunway([
+  {provider: "claude", plan: "synthetic-plan-a", forecast: null}
+], "claude", now)
+check("missing Claude forecast stays unavailable rather than implying unknown plan", [
+  missingClaudeForecast.label,
+  missingClaudeForecast.detail
+], ["Runway unavailable", "No current forecast is available; per-account rows remain visible."])
+
+const unknownPlanCombined = forecast.harnessRunway([
+  account("claude", [claudeWindow("five_hour", 50, 5, iso(now + 24 * hour), fiveHourSeconds)],
+    "ready", "known-plan-account", "synthetic-plan-a"),
+  account("claude", [claudeWindow("five_hour", 100, 0, iso(now + 24 * hour), fiveHourSeconds, "zero_burn")],
+    "ready", "unknown-plan-account", "")
+], "claude", now)
+check("unknown-plan Claude capacity is excluded from Combined", [
+  unknownPlanCombined.kind,
+  unknownPlanCombined.runsOut,
+  unknownPlanCombined.qualified
+], ["short", now + 10 * hour, true])
+
+const differentPlanCombined = forecast.harnessRunway([
+  account("claude", [claudeWindow("five_hour", 50, 5, iso(now + 24 * hour), fiveHourSeconds)],
+    "ready", "plan-a-account", "synthetic-plan-a"),
+  account("claude", [claudeWindow("five_hour", 50, 5, iso(now + 24 * hour), fiveHourSeconds)],
+    "ready", "plan-b-account", "synthetic-plan-b")
+], "claude", now)
+check("different known Claude plans are not combined", [
+  differentPlanCombined.kind,
+  differentPlanCombined.label,
+  differentPlanCombined.detail
+], ["unavailable", "No Combined estimate", "Claude plans differ; see the per-account runways below."])
+
+const incompatibleWindowCombined = forecast.harnessRunway([
+  account("claude", [claudeWindow("five_hour", 50, 5, iso(now + 24 * hour), fiveHourSeconds)],
+    "ready", "five-hour-account", "synthetic-plan-a"),
+  account("claude", [claudeWindow("five_hour", 50, 5, iso(now + 24 * hour), fiveHourSeconds * 2)],
+    "ready", "different-window-account", "synthetic-plan-a")
+], "claude", now)
+check("Claude windows with different durations are not combined", [
+  incompatibleWindowCombined.kind,
+  incompatibleWindowCombined.label
+], ["unavailable", "No Combined estimate"])
+
+const exhaustedCombined = forecast.harnessRunway([
+  account("claude", [claudeWindow("five_hour", 0, null, iso(now + hour), fiveHourSeconds, "exhausted")],
+    "ready", "exhausted-account", "synthetic-plan-a")
+], "claude", now)
+check("a fully spent comparable Claude group stays exhausted", exhaustedCombined.kind, "exhausted")
 
 check("accounts that need sign-in are left out", forecast.harnessRunway([
   account("codex", [{id: "primary", remaining_percent: 70, rate_percent_per_hour: 1}], "reauth_required")

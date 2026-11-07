@@ -190,9 +190,145 @@ function harnessWindow(forecasts, windowId, now) {
   return {windowId: windowId, lasts: lasts, runsOut: runsOut, nextReset: nextReset, remaining: remaining}
 }
 
+function accountPlanCaveat(account, forecast) {
+  if (!account || account.provider !== "claude") return ""
+  var plan = forecast ? forecast.plan : account.plan
+  return String(plan || "").trim() ? "" : "Plan unknown; kept separate from Combined"
+}
+
+function comparableClaudeWindowStatus(status) {
+  return status === "steady" || status === "resets_before_exhaustion" ||
+    status === "zero_burn" || status === "exhausted"
+}
+
+function comparableClaudeWindow(forecast, id) {
+  var windows = forecast ? forecast.windows || [] : []
+  for (var i = 0; i < windows.length; i++) {
+    var window = windows[i]
+    var seconds = Number(window.window_seconds)
+    if (window.id === id && comparableClaudeWindowStatus(String(window.status || "")) &&
+        seconds > 0 && isFinite(seconds) && isFinite(Number(window.remaining_percent))) return window
+  }
+  return null
+}
+
+function unavailableClaudeRunway(detail, label) {
+  return {
+    kind: "unavailable",
+    runsOut: NaN,
+    nextReset: NaN,
+    label: label || "No Combined estimate",
+    detail: detail
+  }
+}
+
+function claudeHarnessRunway(accounts, now) {
+  accounts = accounts || []
+  var hasClaude = false
+  for (var i = 0; i < accounts.length; i++) if (accounts[i].provider === "claude") hasClaude = true
+  if (!hasClaude) return {kind: "unavailable", runsOut: NaN, nextReset: NaN}
+
+  var candidates = []
+  var planNames = []
+  var excluded = false
+  var sawForecast = false
+  var unknownPlan = false
+  var expectedWindows = HARNESS_WINDOWS.claude || []
+  for (var j = 0; j < accounts.length; j++) {
+    if (accounts[j].provider !== "claude") continue
+    var forecast = accounts[j].forecast
+    if (!forecast) {
+      excluded = true
+      continue
+    }
+    sawForecast = true
+    if (forecast.status === "stale" || forecast.status === "reauth_required" ||
+        forecast.account_status === "reauth_required" || forecast.history_error) {
+      excluded = true
+      continue
+    }
+    var plan = String(forecast.plan || "")
+    if (!plan.trim()) {
+      unknownPlan = true
+      excluded = true
+      continue
+    }
+    var hasComparableWindow = false
+    for (var k = 0; k < expectedWindows.length; k++)
+      if (comparableClaudeWindow(forecast, expectedWindows[k])) hasComparableWindow = true
+    if (!hasComparableWindow) {
+      excluded = true
+      continue
+    }
+    if (planNames.indexOf(plan) < 0) planNames.push(plan)
+    candidates.push(forecast)
+  }
+
+  if (planNames.length === 0) {
+    if (!sawForecast)
+      return unavailableClaudeRunway("No current forecast is available; per-account rows remain visible.", "Runway unavailable")
+    if (unknownPlan)
+      return unavailableClaudeRunway("Plan unknown; account runways remain separate below.")
+    return unavailableClaudeRunway("No current comparable Claude data; per-account states remain below.")
+  }
+  if (planNames.length > 1)
+    return unavailableClaudeRunway("Claude plans differ; see the per-account runways below.")
+
+  var results = []
+  for (var windowIndex = 0; windowIndex < expectedWindows.length; windowIndex++) {
+    var windowId = expectedWindows[windowIndex]
+    var durations = []
+    var matchingForecasts = []
+    var allExhausted = true
+    for (var matchingIndex = 0; matchingIndex < candidates.length; matchingIndex++) {
+      var candidateForecast = candidates[matchingIndex]
+      var window = comparableClaudeWindow(candidateForecast, windowId)
+      if (!window) {
+        excluded = true
+        continue
+      }
+      var duration = Number(window.window_seconds)
+      if (durations.indexOf(duration) < 0) durations.push(duration)
+      var forecastCopy = {}
+      for (var forecastKey in candidateForecast) forecastCopy[forecastKey] = candidateForecast[forecastKey]
+      forecastCopy.windows = [window]
+      matchingForecasts.push(forecastCopy)
+      if (window.status !== "exhausted") allExhausted = false
+    }
+    if (durations.length === 0) continue
+    if (durations.length > 1) {
+      excluded = true
+      continue
+    }
+    var windowResult = allExhausted
+      ? {windowId: windowId, lasts: false, runsOut: now, nextReset: NaN, exhausted: true}
+      : harnessWindow(matchingForecasts, windowId, now)
+    results.push(windowResult)
+  }
+
+  if (results.length === 0)
+    return unavailableClaudeRunway("No matching plan and window data can be combined; see the per-account runways below.")
+  var short = null
+  for (var resultIndex = 0; resultIndex < results.length; resultIndex++)
+    if (!results[resultIndex].lasts && (!short || results[resultIndex].runsOut < short.runsOut)) short = results[resultIndex]
+  var summary
+  if (short) summary = short.exhausted
+    ? {kind: "exhausted", runsOut: short.runsOut, nextReset: short.nextReset}
+    : {kind: "short", runsOut: short.runsOut, nextReset: short.nextReset}
+  else {
+    var longest = results[results.length - 1]
+    summary = !isFinite(longest.runsOut)
+      ? {kind: "idle", runsOut: NaN, nextReset: longest.nextReset}
+      : {kind: "lasts", runsOut: longest.runsOut, nextReset: longest.nextReset}
+  }
+  if (excluded) summary.qualified = true
+  return summary
+}
+
 function harnessRunway(accounts, provider, nowMs) {
   var now = Number(nowMs)
   if (!isFinite(now)) now = Date.now()
+  if (provider === "claude") return claudeHarnessRunway(accounts, now)
   var forecasts = []
   accounts = accounts || []
   for (var i = 0; i < accounts.length; i++) {
@@ -236,6 +372,7 @@ if (typeof module !== "undefined") {
     runway: runway,
     windowRunway: windowRunway,
     harnessRunway: harnessRunway,
+    accountPlanCaveat: accountPlanCaveat,
     coverageText: coverageText
   }
 }
