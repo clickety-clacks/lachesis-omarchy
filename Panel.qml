@@ -253,7 +253,6 @@ Panel {
 
   function refreshNow() {
     if (fetchProcess.running) return
-    clearForecasts()
     refreshing = true
     errorText = ""
     fetchProcess.command = [Qt.resolvedUrl("fetch.sh").toString().replace("file://", ""),
