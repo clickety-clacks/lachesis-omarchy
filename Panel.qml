@@ -30,6 +30,7 @@ Panel {
 
   readonly property var codexAccounts: accountsFor("codex")
   readonly property var claudeAccounts: accountsFor("claude")
+  readonly property var otherAccounts: Forecast.otherProviderAccounts(accounts)
   readonly property var activeCodex: activeFor("codex")
   readonly property var activeClaude: activeFor("claude")
   readonly property int codexPercent: headlinePercent(activeCodex)
@@ -202,6 +203,14 @@ Panel {
   }
 
   function providerName(provider) { return provider === "codex" ? "Codex" : "Claude" }
+
+  function providerAccentColor(account) {
+    var provider = account && typeof account.provider === "string" ? account.provider : ""
+    var role = Forecast.providerAccentRole(provider)
+    if (role === "accent") return Color.accent
+    if (role === "foreground") return root.foreground
+    return root.dim
+  }
 
   function shortLabel(account) {
     if (!account) return "Not connected"
@@ -501,6 +510,13 @@ Panel {
             model: root.claudeAccounts
           }
 
+          ProviderSection {
+            visible: root.otherAccounts.length > 0
+            width: parent.width
+            title: "Other providers"
+            model: root.otherAccounts
+          }
+
           Text {
             width: parent.width
             text: "R refreshes · select an account for details"
@@ -578,12 +594,13 @@ Panel {
   component ProviderSection: Column {
     id: section
     property string provider: ""
+    property string title: ""
     property var model: []
     spacing: Style.space(10)
 
     PanelSectionHeader {
       width: parent.width
-      text: root.providerName(section.provider).toUpperCase() + " · " + section.model.length
+      text: (section.title || root.providerName(section.provider)).toUpperCase() + " · " + section.model.length
       foreground: root.foreground
       fontFamily: root.fontFamily
     }
@@ -607,7 +624,7 @@ Panel {
     }
   }
 
-  component AccountCard: Column {
+  component AccountCard: Item {
     id: accountCard
     property var account: null
     property bool expanded: false
@@ -616,187 +633,207 @@ Panel {
     readonly property var forecast: root.forecastFor(account)
     readonly property string caveat: root.accountCaveat(account)
     readonly property bool prominentRunway: accountCard.account && accountCard.account.provider === "claude"
-    spacing: Style.space(6)
+    readonly property real accentWidth: Style.space(2)
+    readonly property real contentInset: accentWidth + Style.space(2)
+    implicitHeight: cardContent.implicitHeight
+    height: implicitHeight
 
-    Controls.Button {
-      width: parent.width
-      padding: 0
-      hoverEnabled: true
-      background: Rectangle {
-        color: parent.hovered || parent.activeFocus ? root.alpha(root.foreground, 0.05) : "transparent"
-        radius: Style.cornerRadius
-      }
-      onClicked: accountCard.expanded = !accountCard.expanded
-      Accessible.name: root.shortLabel(accountCard.account) + ", " +
-        (root.headlinePercent(accountCard.account) >= 0 ? root.headlinePercent(accountCard.account) + " percent used, " : "") +
-        accountCard.runway.label + (accountCard.caveat ? ", " + accountCard.caveat : "") +
-        ", " + accountCard.runway.detail +
-        (accountCard.expanded ? ", collapse details" : ", expand details")
+    Column {
+      id: cardContent
+      x: accountCard.contentInset
+      width: Math.max(0, accountCard.width - accountCard.contentInset)
+      spacing: Style.space(6)
+      height: implicitHeight
 
-      contentItem: Column {
-        spacing: Style.space(4)
-        Item {
-          width: parent.width
-          implicitHeight: Math.max(accountName.implicitHeight, accountValue.implicitHeight)
-          Text {
-            id: accountName
-            text: (accountCard.account && accountCard.account.active ? "● " : "") + root.shortLabel(accountCard.account)
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            font.bold: accountCard.account && accountCard.account.active
-            anchors.left: parent.left
-            anchors.right: accountValue.left
-            anchors.rightMargin: Style.space(10)
-            elide: Text.ElideRight
+      Controls.Button {
+        width: parent.width
+        padding: 0
+        hoverEnabled: true
+        background: Rectangle {
+          color: parent.hovered || parent.activeFocus ? root.alpha(root.foreground, 0.05) : "transparent"
+          radius: Style.cornerRadius
+        }
+        onClicked: accountCard.expanded = !accountCard.expanded
+        Accessible.name: root.shortLabel(accountCard.account) + ", " +
+          (root.headlinePercent(accountCard.account) >= 0 ? root.headlinePercent(accountCard.account) + " percent used, " : "") +
+          accountCard.runway.label + (accountCard.caveat ? ", " + accountCard.caveat : "") +
+          ", " + accountCard.runway.detail +
+          (accountCard.expanded ? ", collapse details" : ", expand details")
+
+        contentItem: Column {
+          spacing: Style.space(4)
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(accountName.implicitHeight, accountValue.implicitHeight)
+            Text {
+              id: accountName
+              text: (accountCard.account && accountCard.account.active ? "● " : "") + root.shortLabel(accountCard.account)
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: accountCard.account && accountCard.account.active
+              anchors.left: parent.left
+              anchors.right: accountValue.left
+              anchors.rightMargin: Style.space(10)
+              elide: Text.ElideRight
+            }
+            Text {
+              id: accountValue
+              text: (root.headlinePercent(accountCard.account) >= 0 ? root.headlinePercent(accountCard.account) + "% used" : "Unavailable") +
+                (accountCard.expanded ? "  ▴" : "  ▾")
+              color: root.headlinePercent(accountCard.account) >= 90 ? root.urgent : root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+              anchors.right: parent.right
+            }
           }
+
           Text {
-            id: accountValue
-            text: (root.headlinePercent(accountCard.account) >= 0 ? root.headlinePercent(accountCard.account) + "% used" : "Unavailable") +
-              (accountCard.expanded ? "  ▴" : "  ▾")
-            color: root.headlinePercent(accountCard.account) >= 90 ? root.urgent : root.foreground
+            visible: !accountCard.prominentRunway
+            width: parent.width
+            text: accountCard.runway.label + (accountCard.caveat ? " · " + accountCard.caveat : "")
+            color: root.stateColor(accountCard.runway.kind)
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Repeater {
+            model: accountCard.windows
+            Column {
+              id: usageRow
+              required property var modelData
+              required property int index
+              width: parent.width
+              spacing: Style.space(3)
+              Text {
+                visible: accountCard.windows.length > 1
+                width: parent.width
+                text: modelData.name + " · " + Math.round(Number(modelData.used_percent)) + "% used"
+                color: Number(modelData.used_percent) >= 90 ? root.urgent : root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+              Meter {
+                width: parent.width
+                value: Number(usageRow.modelData.used_percent) / 100
+                alarming: Number(usageRow.modelData.used_percent) >= 90
+              }
+              Text {
+                width: parent.width
+                text: (accountCard.windows.length === 1 ? usageRow.modelData.name + " · " : "") +
+                  root.resetText(usageRow.modelData) +
+                  (usageRow.index === 0 && root.usageNote(accountCard.account) ? " · " + root.usageNote(accountCard.account) : "")
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
+            }
+          }
+        }
+      }
+
+      BorderSurface {
+        visible: accountCard.prominentRunway
+        width: parent.width
+        implicitHeight: runwaySummary.implicitHeight + Style.space(16)
+        color: root.alpha(root.foreground, 0.035)
+        borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
+        radius: Style.cornerRadius
+
+        Column {
+          id: runwaySummary
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.margins: Style.space(8)
+          spacing: Style.space(3)
+
+          Text {
+            width: parent.width
+            text: accountCard.runway.label
+            color: root.stateColor(accountCard.runway.kind)
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             font.bold: true
-            anchors.right: parent.right
+            wrapMode: Text.WordWrap
+          }
+
+          Text {
+            width: parent.width
+            text: {
+              var detail = String(accountCard.runway.detail || "")
+              var caveat = String(accountCard.caveat || "")
+              return caveat && detail.indexOf(caveat) < 0 ? detail + " · " + caveat : detail
+            }
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
           }
         }
+      }
 
+      Column {
+        visible: accountCard.expanded
+        width: parent.width
+        spacing: Style.space(5)
+        Text {
+          width: parent.width
+          text: root.shortLabel(accountCard.account) +
+            (accountCard.account && accountCard.account.active ? " · Active account" : "") +
+            (accountCard.account && accountCard.account.plan ? " · " + accountCard.account.plan : "")
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+        }
         Text {
           visible: !accountCard.prominentRunway
           width: parent.width
-          text: accountCard.runway.label + (accountCard.caveat ? " · " + accountCard.caveat : "")
-          color: root.stateColor(accountCard.runway.kind)
+          text: accountCard.runway.detail
+          color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
         }
-
+        Text {
+          width: parent.width
+          text: root.ageText(accountCard.account) +
+            (accountCard.forecast ? " · " + Forecast.coverageText(accountCard.forecast.coverage_hours) : "")
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+        }
         Repeater {
           model: accountCard.windows
-          Column {
-            id: usageRow
+          Text {
             required property var modelData
-            required property int index
+            readonly property var windowForecast: root.forecastWindow(accountCard.account, modelData.id)
             width: parent.width
-            spacing: Style.space(3)
-            Text {
-              visible: accountCard.windows.length > 1
-              width: parent.width
-              text: modelData.name + " · " + Math.round(Number(modelData.used_percent)) + "% used"
-              color: Number(modelData.used_percent) >= 90 ? root.urgent : root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-            Meter {
-              width: parent.width
-              value: Number(usageRow.modelData.used_percent) / 100
-              alarming: Number(usageRow.modelData.used_percent) >= 90
-            }
-            Text {
-              width: parent.width
-              text: (accountCard.windows.length === 1 ? usageRow.modelData.name + " · " : "") +
-                root.resetText(usageRow.modelData) +
-                (usageRow.index === 0 && root.usageNote(accountCard.account) ? " · " + root.usageNote(accountCard.account) : "")
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
-            }
+            visible: windowForecast !== null
+            text: modelData.name + ": " + Forecast.windowRunway(windowForecast, root.nowMs).label +
+              (windowForecast ? " · " + Forecast.coverageText(windowForecast.coverage_48h_hours) : "") +
+              (windowForecast && root.hasDiagnostic(windowForecast.diagnostics, "USAGE_CAPPED_DEMAND_CENSORED") ? " · 100% cap hides demand" : "")
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
           }
         }
       }
-    }
-
-    BorderSurface {
-      visible: accountCard.prominentRunway
-      width: accountCard.width
-      implicitHeight: runwaySummary.implicitHeight + Style.space(16)
-      color: root.alpha(root.foreground, 0.035)
-      borderSpec: Border.flat(root.alpha(root.foreground, 0.16), 1)
-      radius: Style.cornerRadius
-
-      Column {
-        id: runwaySummary
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.margins: Style.space(8)
-        spacing: Style.space(3)
-
-        Text {
-          width: parent.width
-          text: accountCard.runway.label
-          color: root.stateColor(accountCard.runway.kind)
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          wrapMode: Text.WordWrap
-        }
-
-        Text {
-          width: parent.width
-          text: {
-            var detail = String(accountCard.runway.detail || "")
-            var caveat = String(accountCard.caveat || "")
-            return caveat && detail.indexOf(caveat) < 0 ? detail + " · " + caveat : detail
-          }
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
-        }
       }
-    }
 
-    Column {
-      visible: accountCard.expanded
-      width: parent.width
-      spacing: Style.space(5)
-      Text {
-        width: parent.width
-        text: root.shortLabel(accountCard.account) +
-          (accountCard.account && accountCard.account.active ? " · Active account" : "") +
-          (accountCard.account && accountCard.account.plan ? " · " + accountCard.account.plan : "")
-        color: root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-      }
-      Text {
-        visible: !accountCard.prominentRunway
-        width: parent.width
-        text: accountCard.runway.detail
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-      }
-      Text {
-        width: parent.width
-        text: root.ageText(accountCard.account) +
-          (accountCard.forecast ? " · " + Forecast.coverageText(accountCard.forecast.coverage_hours) : "")
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-      }
-      Repeater {
-        model: accountCard.windows
-        Text {
-          required property var modelData
-          readonly property var windowForecast: root.forecastWindow(accountCard.account, modelData.id)
-          width: parent.width
-          visible: windowForecast !== null
-          text: modelData.name + ": " + Forecast.windowRunway(windowForecast, root.nowMs).label +
-            (windowForecast ? " · " + Forecast.coverageText(windowForecast.coverage_48h_hours) : "") +
-            (windowForecast && root.hasDiagnostic(windowForecast.diagnostics, "USAGE_CAPPED_DEMAND_CENSORED") ? " · 100% cap hides demand" : "")
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
-        }
-      }
+    Rectangle {
+      anchors.left: parent.left
+      anchors.top: parent.top
+      anchors.bottom: parent.bottom
+      width: accountCard.accentWidth
+      radius: Math.min(width / 2, Style.cornerRadius)
+      color: root.providerAccentColor(accountCard.account)
     }
   }
 

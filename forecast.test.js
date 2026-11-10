@@ -94,6 +94,23 @@ check("Codex fallback behavior remains unchanged", forecast.activeAccount([
   {provider: "codex", id: "second", active: false}
 ], "codex"), {provider: "codex", id: "first"})
 
+check("provider accent roles distinguish the known providers and keep a neutral fallback", [
+  forecast.providerAccentRole("claude"),
+  forecast.providerAccentRole("codex"),
+  forecast.providerAccentRole("unknown"),
+  forecast.providerAccentRole("")
+], ["accent", "foreground", "neutral", "neutral"])
+
+const unknownProvider = {provider: "unknown", label: "Unknown account"}
+const missingProvider = {label: "Missing provider"}
+check("missing and unmapped provider accounts remain in the renderable fallback group",
+  forecast.otherProviderAccounts([
+    {provider: "claude", label: "Claude account"},
+    {provider: "codex", label: "Codex account"},
+    unknownProvider,
+    missingProvider
+  ]), [unknownProvider, missingProvider])
+
 check("stale estimate cannot look current", forecast.runway({
   status: "stale",
   exhaustion_at: "2026-09-21T15:30:00Z",
