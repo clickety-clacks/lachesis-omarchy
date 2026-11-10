@@ -36,6 +36,23 @@ function activeAccount(accounts, provider, providerAccountUuid) {
   return matches.length > 0 ? matches[0] : null
 }
 
+function otherProviderAccounts(accounts) {
+  var out = []
+  accounts = accounts || []
+  for (var i = 0; i < accounts.length; i++) {
+    var account = accounts[i]
+    var provider = account && typeof account.provider === "string" ? account.provider : ""
+    if (provider !== "codex" && provider !== "claude") out.push(account)
+  }
+  return out
+}
+
+function providerAccentRole(provider) {
+  if (provider === "claude") return "accent"
+  if (provider === "codex") return "foreground"
+  return "neutral"
+}
+
 function runwayIsUrgent(kind) {
   return kind === "exhausted" || kind === "stale" || kind === "unavailable" || kind === "elapsed"
 }
@@ -367,6 +384,8 @@ if (typeof module !== "undefined") {
     timestampMs: timestampMs,
     formatDuration: formatDuration,
     activeAccount: activeAccount,
+    otherProviderAccounts: otherProviderAccounts,
+    providerAccentRole: providerAccentRole,
     runwayIsUrgent: runwayIsUrgent,
     statusLabel: statusLabel,
     runway: runway,
