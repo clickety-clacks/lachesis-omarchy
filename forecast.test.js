@@ -38,6 +38,19 @@ check("current usage age advances with the panel clock", forecast.usageFreshness
   usage_age_seconds: 12
 }, 1000, 46000), "Current · 57s ago")
 
+check("age alone does not change current usage classification", [
+  forecast.usageFreshness({
+    usage_freshness: "current",
+    usage_freshness_reason: null,
+    usage_age_seconds: 12
+  }, 1000, 361000).kind,
+  forecast.usageFreshnessText({
+    usage_freshness: "current",
+    usage_freshness_reason: null,
+    usage_age_seconds: 12
+  }, 1000, 361000)
+], ["current", "Current · 6m ago"])
+
 check("stale usage exposes the failed-read reason", forecast.usageFreshnessText({
   usage_freshness: "stale",
   usage_freshness_reason: "CREDENTIAL_REJECTED"
