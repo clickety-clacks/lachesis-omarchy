@@ -98,6 +98,7 @@ jq -cn \
           else false end
         ),
         status: ($meta.status // $forecast_row.account_status // "unknown"),
+        summary: (if ($usage_row.summary | type) == "object" then $usage_row.summary else null end),
         usage_status: ($usage_row.status // (if $usage_row.sample != null then "ready" else "unavailable" end)),
         observed_at: ($sample.observed_at // null),
         age_seconds: ($sample.age_seconds // null),

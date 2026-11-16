@@ -27,6 +27,7 @@ Panel {
   property string errorText: ""
   property bool refreshing: false
   property double nowMs: Date.now()
+  property double usageFetchedAtMs: 0
 
   readonly property var codexAccounts: accountsFor("codex")
   readonly property var claudeAccounts: accountsFor("claude")
@@ -172,12 +173,8 @@ Panel {
   }
 
   function usageNote(account) {
-    if (!account) return ""
-    var status = String(account.usage_status || "")
-    if (status === "stale") return "Stale usage"
-    if (status === "error" || status === "unavailable") return "Usage unavailable"
-    if (status === "cache") return "Cached usage"
-    return ""
+    return Forecast.usageFreshnessText(account ? account.summary : null,
+                                       root.usageFetchedAtMs, root.nowMs)
   }
 
   function displayWindows(account) {
@@ -238,15 +235,6 @@ Panel {
     return "Resets in " + formatDuration(timestamp - nowMs)
   }
 
-  function ageText(account) {
-    if (!account) return ""
-    var observed = Forecast.timestampMs(account.observed_at)
-    if (isFinite(observed)) return "Updated " + formatDuration(nowMs - observed) + " ago"
-    var reportedAge = Number(account.age_seconds)
-    if (reportedAge > 0 && isFinite(reportedAge)) return "Observed " + formatDuration(reportedAge * 1000) + " ago"
-    return "No usage sample"
-  }
-
   function clearForecasts() {
     var current = []
     for (var i = 0; i < accounts.length; i++) {
@@ -272,9 +260,10 @@ Panel {
   function applyPayload(text) {
     try {
       var payload = JSON.parse(String(text || ""))
+      usageFetchedAtMs = Date.now()
+      nowMs = usageFetchedAtMs
       claudeAccountUuid = String(payload.active_claude_uuid || "")
       accounts = withActiveClaudeAccount(payload.accounts || [], claudeAccountUuid)
-      nowMs = Date.now()
       generatedAt = String(payload.generated_at || "")
       forecastGeneratedAt = String(payload.forecast_generated_at || "")
       forecastStatus = String(payload.forecast_status || "unavailable")
@@ -699,6 +688,15 @@ Panel {
             wrapMode: Text.WordWrap
           }
 
+          Text {
+            width: parent.width
+            text: root.usageNote(accountCard.account)
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
           Repeater {
             model: accountCard.windows
             Column {
@@ -723,8 +721,7 @@ Panel {
               Text {
                 width: parent.width
                 text: (accountCard.windows.length === 1 ? usageRow.modelData.name + " · " : "") +
-                  root.resetText(usageRow.modelData) +
-                  (usageRow.index === 0 && root.usageNote(accountCard.account) ? " · " + root.usageNote(accountCard.account) : "")
+                  root.resetText(usageRow.modelData)
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -800,9 +797,9 @@ Panel {
           wrapMode: Text.WordWrap
         }
         Text {
+          visible: accountCard.forecast !== null
           width: parent.width
-          text: root.ageText(accountCard.account) +
-            (accountCard.forecast ? " · " + Forecast.coverageText(accountCard.forecast.coverage_hours) : "")
+          text: accountCard.forecast ? Forecast.coverageText(accountCard.forecast.coverage_hours) : ""
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
