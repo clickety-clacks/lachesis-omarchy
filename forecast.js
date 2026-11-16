@@ -16,7 +16,7 @@ function formatDuration(ms) {
   return Math.max(1, minutes) + "m"
 }
 
-function usageFreshness(summary) {
+function usageFreshness(summary, fetchedAtMs, nowMs) {
   var unknown = {kind: "unknown", label: "Unknown", detail: "Usage freshness unknown"}
   if (!summary || typeof summary !== "object" || Array.isArray(summary)) return unknown
 
@@ -26,6 +26,9 @@ function usageFreshness(summary) {
     var age = summary.usage_age_seconds
     if (reason !== null || typeof age !== "number" || !isFinite(age) || age < 0 ||
         Math.floor(age) !== age) return unknown
+    if (typeof fetchedAtMs !== "number" || !isFinite(fetchedAtMs) ||
+        typeof nowMs !== "number" || !isFinite(nowMs) || nowMs < fetchedAtMs) return unknown
+    age += Math.floor((nowMs - fetchedAtMs) / 1000)
     var ageText = age < 60 ? age + "s ago" : formatDuration(age * 1000) + " ago"
     return {kind: "current", label: "Current", detail: ageText}
   }
@@ -45,8 +48,8 @@ function usageFreshness(summary) {
   return unknown
 }
 
-function usageFreshnessText(summary) {
-  var state = usageFreshness(summary)
+function usageFreshnessText(summary, fetchedAtMs, nowMs) {
+  var state = usageFreshness(summary, fetchedAtMs, nowMs)
   return state.kind === "unknown" ? state.label : state.label + " · " + state.detail
 }
 

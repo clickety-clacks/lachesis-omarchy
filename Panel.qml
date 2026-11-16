@@ -27,6 +27,7 @@ Panel {
   property string errorText: ""
   property bool refreshing: false
   property double nowMs: Date.now()
+  property double usageFetchedAtMs: 0
 
   readonly property var codexAccounts: accountsFor("codex")
   readonly property var claudeAccounts: accountsFor("claude")
@@ -172,7 +173,8 @@ Panel {
   }
 
   function usageNote(account) {
-    return Forecast.usageFreshnessText(account ? account.summary : null)
+    return Forecast.usageFreshnessText(account ? account.summary : null,
+                                       root.usageFetchedAtMs, root.nowMs)
   }
 
   function displayWindows(account) {
@@ -258,9 +260,10 @@ Panel {
   function applyPayload(text) {
     try {
       var payload = JSON.parse(String(text || ""))
+      usageFetchedAtMs = Date.now()
+      nowMs = usageFetchedAtMs
       claudeAccountUuid = String(payload.active_claude_uuid || "")
       accounts = withActiveClaudeAccount(payload.accounts || [], claudeAccountUuid)
-      nowMs = Date.now()
       generatedAt = String(payload.generated_at || "")
       forecastGeneratedAt = String(payload.forecast_generated_at || "")
       forecastStatus = String(payload.forecast_status || "unavailable")
