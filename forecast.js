@@ -16,6 +16,40 @@ function formatDuration(ms) {
   return Math.max(1, minutes) + "m"
 }
 
+function usageFreshness(summary) {
+  var unknown = {kind: "unknown", label: "Unknown", detail: "Usage freshness unknown"}
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) return unknown
+
+  var freshness = summary.usage_freshness
+  var reason = summary.usage_freshness_reason
+  if (freshness === "current") {
+    var age = summary.usage_age_seconds
+    if (reason !== null || typeof age !== "number" || !isFinite(age) || age < 0 ||
+        Math.floor(age) !== age) return unknown
+    var ageText = age < 60 ? age + "s ago" : formatDuration(age * 1000) + " ago"
+    return {kind: "current", label: "Current", detail: ageText}
+  }
+
+  if (freshness === "stale") {
+    if (typeof reason !== "string" || reason.trim() !== reason || reason === "" ||
+        reason === "not_yet_observed") return unknown
+    return {kind: "stale", label: "Stale", detail: reason}
+  }
+
+  if (freshness === "none") {
+    if (typeof reason !== "string" || reason.trim() !== reason || reason === "" ||
+        reason === "not_yet_observed") return unknown
+    return {kind: "failed", label: "Failed", detail: reason}
+  }
+
+  return unknown
+}
+
+function usageFreshnessText(summary) {
+  var state = usageFreshness(summary)
+  return state.kind === "unknown" ? state.label : state.label + " · " + state.detail
+}
+
 function activeAccount(accounts, provider, providerAccountUuid) {
   var matches = []
   var active = []
@@ -383,6 +417,8 @@ if (typeof module !== "undefined") {
   module.exports = {
     timestampMs: timestampMs,
     formatDuration: formatDuration,
+    usageFreshness: usageFreshness,
+    usageFreshnessText: usageFreshnessText,
     activeAccount: activeAccount,
     otherProviderAccounts: otherProviderAccounts,
     providerAccentRole: providerAccentRole,

@@ -20,6 +20,37 @@ check("future estimate formats hours", forecast.runway({
   detail: "Runs out in 3h 30m"
 })
 
+check("current usage freshness displays the summary age", forecast.usageFreshnessText({
+  usage_freshness: "current",
+  usage_freshness_reason: null,
+  usage_age_seconds: 0
+}), "Current · 0s ago")
+
+check("long current usage ages stay readable", forecast.usageFreshnessText({
+  usage_freshness: "current",
+  usage_freshness_reason: null,
+  usage_age_seconds: 2400
+}), "Current · 40m ago")
+
+check("stale usage exposes the failed-read reason", forecast.usageFreshnessText({
+  usage_freshness: "stale",
+  usage_freshness_reason: "CREDENTIAL_REJECTED"
+}), "Stale · CREDENTIAL_REJECTED")
+
+check("usage with no prior sample exposes a real failure reason", forecast.usageFreshnessText({
+  usage_freshness: "none",
+  usage_freshness_reason: "CREDENTIAL_REJECTED"
+}), "Failed · CREDENTIAL_REJECTED")
+
+check("missing, not-yet-observed, and unrecognized freshness stay unknown", [
+  forecast.usageFreshnessText(null),
+  forecast.usageFreshnessText({usage_freshness: "none", usage_freshness_reason: "not_yet_observed"}),
+  forecast.usageFreshnessText({usage_freshness: "future", usage_freshness_reason: "CREDENTIAL_REJECTED"}),
+  forecast.usageFreshnessText({usage_freshness: "current", usage_freshness_reason: null, usage_age_seconds: null}),
+  forecast.usageFreshnessText({usage_freshness: "stale", usage_freshness_reason: null}),
+  forecast.usageFreshnessText({usage_freshness: "stale", usage_freshness_reason: " not_yet_observed"})
+], ["Unknown", "Unknown", "Unknown", "Unknown", "Unknown", "Unknown"])
+
 check("qualified finite runway keeps its qualification", forecast.runway({
   status: "estimated_qualified",
   exhaustion_at: "2026-09-21T15:30:00Z",

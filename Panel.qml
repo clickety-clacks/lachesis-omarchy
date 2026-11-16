@@ -172,12 +172,7 @@ Panel {
   }
 
   function usageNote(account) {
-    if (!account) return ""
-    var status = String(account.usage_status || "")
-    if (status === "stale") return "Stale usage"
-    if (status === "error" || status === "unavailable") return "Usage unavailable"
-    if (status === "cache") return "Cached usage"
-    return ""
+    return Forecast.usageFreshnessText(account ? account.summary : null)
   }
 
   function displayWindows(account) {
@@ -236,15 +231,6 @@ Panel {
     var timestamp = new Date(window.resets_at).getTime()
     if (!isFinite(timestamp)) return ""
     return "Resets in " + formatDuration(timestamp - nowMs)
-  }
-
-  function ageText(account) {
-    if (!account) return ""
-    var observed = Forecast.timestampMs(account.observed_at)
-    if (isFinite(observed)) return "Updated " + formatDuration(nowMs - observed) + " ago"
-    var reportedAge = Number(account.age_seconds)
-    if (reportedAge > 0 && isFinite(reportedAge)) return "Observed " + formatDuration(reportedAge * 1000) + " ago"
-    return "No usage sample"
   }
 
   function clearForecasts() {
@@ -699,6 +685,15 @@ Panel {
             wrapMode: Text.WordWrap
           }
 
+          Text {
+            width: parent.width
+            text: root.usageNote(accountCard.account)
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
           Repeater {
             model: accountCard.windows
             Column {
@@ -723,8 +718,7 @@ Panel {
               Text {
                 width: parent.width
                 text: (accountCard.windows.length === 1 ? usageRow.modelData.name + " · " : "") +
-                  root.resetText(usageRow.modelData) +
-                  (usageRow.index === 0 && root.usageNote(accountCard.account) ? " · " + root.usageNote(accountCard.account) : "")
+                  root.resetText(usageRow.modelData)
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -800,9 +794,9 @@ Panel {
           wrapMode: Text.WordWrap
         }
         Text {
+          visible: accountCard.forecast !== null
           width: parent.width
-          text: root.ageText(accountCard.account) +
-            (accountCard.forecast ? " · " + Forecast.coverageText(accountCard.forecast.coverage_hours) : "")
+          text: accountCard.forecast ? Forecast.coverageText(accountCard.forecast.coverage_hours) : ""
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
